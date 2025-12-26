@@ -9,7 +9,7 @@ on:
   workflow_dispatch:  # Manual trigger
 
 env:
-  DOCKER_IMAGE: nirvana-777/epg-service
+  DOCKER_IMAGE: nirvana777/epg-service
   PYTHON_VERSION: '3.11'
 
 jobs:
