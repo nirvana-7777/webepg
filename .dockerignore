@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+README.md
+QUICKSTART.md
+DOCKER.md
+DOCKER_QUICKREF.md
+*.md
+
+# Docker
+.dockerignore
+docker-compose.yml
+docker-compose.prod.yml
+
+# Tests
+tests/
+*.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backups
+backups/
+
+# Environment
+.env
+.env.*
+
+# Nginx config
+nginx/
+
+# Certbot
+certbot/
+
+# Scripts
+setup-docker.sh
+Makefile
