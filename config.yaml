@@ -1,0 +1,19 @@
+database:
+  path: "epg.db"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  debug: false
+  cors_enabled: false
+
+retention:
+  days: 7
+
+scheduler:
+  import_time: "03:00"
+  timezone: "UTC"
+
+logging:
+  level: "INFO"
+  format: "text"  # 'text' or 'json'
