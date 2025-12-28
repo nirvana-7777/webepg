@@ -49,22 +49,22 @@ def list_channels():
         return jsonify({'error': str(e)}), 500
 
 
-@api_bp.route('/channels/<int:channel_id>', methods=['GET'])
-def get_channel(channel_id):
-    """Get channel by ID."""
+@api_bp.route('/channels/<channel_identifier>', methods=['GET'])
+def get_channel(channel_identifier):
+    """Get channel by ID, name, or alias."""
     try:
-        channel = epg_service.get_channel(channel_id)
+        channel = epg_service.get_channel_by_id_or_alias(channel_identifier)
         if not channel:
             return jsonify({'error': 'Channel not found'}), 404
 
         return jsonify(channel.to_dict())
     except Exception as e:
-        logger.error(f"Error getting channel {channel_id}: {e}")
+        logger.error(f"Error getting channel {channel_identifier}: {e}")
         return jsonify({'error': str(e)}), 500
 
 
-@api_bp.route('/channels/<int:channel_id>/programs', methods=['GET'])
-def get_channel_programs(channel_id):
+@api_bp.route('/channels/<channel_identifier>/programs', methods=['GET'])
+def get_channel_programs(channel_identifier):
     """Get programs for a channel within a time range."""
     try:
         # Parse query parameters
@@ -90,18 +90,18 @@ def get_channel_programs(channel_id):
                 'error': 'Start time must be before end time'
             }), 400
 
-        # Check if channel exists
-        channel = epg_service.get_channel(channel_id)
+        # Get channel by ID, name, or alias
+        channel = epg_service.get_channel_by_id_or_alias(channel_identifier)
         if not channel:
             return jsonify({'error': 'Channel not found'}), 404
 
         # Get programs
-        programs = epg_service.get_programs(channel_id, start, end)
+        programs = epg_service.get_programs(channel.id, start, end)
 
         return jsonify([program.to_dict() for program in programs])
 
     except Exception as e:
-        logger.error(f"Error getting programs for channel {channel_id}: {e}")
+        logger.error(f"Error getting programs for channel {channel_identifier}: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -210,7 +210,7 @@ def trigger_import():
         return jsonify({
             'message': 'Import job triggered',
             'next_scheduled_import': scheduler.get_next_run_time().isoformat()
-            if scheduler.get_next_run_time() else None
+                if scheduler.get_next_run_time() else None
         })
 
     except Exception as e:
@@ -230,16 +230,11 @@ def import_status():
         # Get recent import logs
         rows = db.fetchall(
             """
-            SELECT id,
-                   provider_id,
-                   started_at,
-                   completed_at,
-                   status,
-                   programs_imported,
-                   programs_skipped,
-                   error_message
+            SELECT id, provider_id, started_at, completed_at, status,
+                   programs_imported, programs_skipped, error_message
             FROM import_log
-            ORDER BY started_at DESC LIMIT 10
+            ORDER BY started_at DESC
+            LIMIT 10
             """)
 
         logs = [ImportLog.from_db_row(tuple(row)).to_dict() for row in rows]
@@ -253,6 +248,74 @@ def import_status():
 
     except Exception as e:
         logger.error(f"Error getting import status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/channels/<channel_identifier>/aliases', methods=['GET'])
+def list_channel_aliases(channel_identifier):
+    """List all aliases for a channel."""
+    try:
+        # Get channel by ID, name, or alias
+        channel = epg_service.get_channel_by_id_or_alias(channel_identifier)
+        if not channel:
+            return jsonify({'error': 'Channel not found'}), 404
+
+        aliases = epg_service.list_channel_aliases(channel.id)
+
+        return jsonify([alias.to_dict() for alias in aliases])
+
+    except Exception as e:
+        logger.error(f"Error listing aliases for channel {channel_identifier}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/channels/<channel_identifier>/aliases', methods=['POST'])
+def create_channel_alias(channel_identifier):
+    """Create an alias for a channel."""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
+
+        alias = data.get('alias')
+        alias_type = data.get('alias_type')
+
+        if not alias:
+            return jsonify({'error': 'alias is required'}), 400
+
+        # Get channel by ID, name, or alias
+        channel = epg_service.get_channel_by_id_or_alias(channel_identifier)
+        if not channel:
+            return jsonify({'error': 'Channel not found'}), 404
+
+        # Create alias
+        new_alias = epg_service.create_channel_alias(
+            channel_id=channel.id,
+            alias=alias,
+            alias_type=alias_type
+        )
+
+        return jsonify(new_alias.to_dict()), 201
+
+    except Exception as e:
+        logger.error(f"Error creating alias for channel {channel_identifier}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/aliases/<int:alias_id>', methods=['DELETE'])
+def delete_channel_alias(alias_id):
+    """Delete a channel alias."""
+    try:
+        deleted = epg_service.delete_channel_alias(alias_id)
+
+        if not deleted:
+            return jsonify({'error': 'Alias not found'}), 404
+
+        return '', 204
+
+    except Exception as e:
+        logger.error(f"Error deleting alias {alias_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
 

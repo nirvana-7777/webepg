@@ -41,6 +41,16 @@ class SchemaManager:
         UNIQUE(name)
     );
     
+    -- Channel aliases for flexible API access
+    CREATE TABLE IF NOT EXISTS channel_aliases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id INTEGER NOT NULL,
+        alias TEXT NOT NULL UNIQUE,
+        alias_type TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
+    );
+    
     -- Map provider channel IDs to logical channels
     CREATE TABLE IF NOT EXISTS channel_mappings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,6 +111,9 @@ class SchemaManager:
     
     CREATE INDEX IF NOT EXISTS idx_channel_mappings_lookup
         ON channel_mappings(provider_id, provider_channel_id);
+    
+    CREATE INDEX IF NOT EXISTS idx_channel_aliases_lookup
+        ON channel_aliases(alias);
     """
 
     @classmethod

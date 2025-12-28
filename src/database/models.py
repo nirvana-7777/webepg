@@ -1,9 +1,9 @@
 """
 Data models for EPG service.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 
 
 @dataclass
@@ -90,6 +90,37 @@ class ChannelMapping:
             channel_id=row[3],
             created_at=datetime.fromisoformat(row[4]) if row[4] else None
         )
+
+
+@dataclass
+class ChannelAlias:
+    """Channel alias for flexible API access."""
+    id: Optional[int] = None
+    channel_id: int = 0
+    alias: str = ""
+    alias_type: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    @classmethod
+    def from_db_row(cls, row: tuple) -> 'ChannelAlias':
+        """Create ChannelAlias from database row."""
+        return cls(
+            id=row[0],
+            channel_id=row[1],
+            alias=row[2],
+            alias_type=row[3],
+            created_at=datetime.fromisoformat(row[4]) if row[4] else None
+        )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'id': self.id,
+            'channel_id': self.channel_id,
+            'alias': self.alias,
+            'alias_type': self.alias_type,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
 
 
 @dataclass
