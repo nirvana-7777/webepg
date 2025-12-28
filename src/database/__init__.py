@@ -2,7 +2,7 @@
 """Database layer for EPG service."""
 
 from .schema import SchemaManager
-from .models import Provider, Channel, ChannelMapping, Program, ImportLog
+from .models import Provider, Channel, ChannelMapping, ChannelAlias, Program, ImportLog
 from .connection import DatabaseConnection, initialize_db, get_db, close_db
 
 __all__ = [
@@ -10,6 +10,7 @@ __all__ = [
     'Provider',
     'Channel',
     'ChannelMapping',
+    'ChannelAlias',
     'Program',
     'ImportLog',
     'DatabaseConnection',
