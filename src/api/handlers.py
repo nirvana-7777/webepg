@@ -319,6 +319,71 @@ def delete_channel_alias(alias_id):
         return jsonify({'error': str(e)}), 500
 
 
+@api_bp.route('/statistics', methods=['GET'])
+def get_statistics():
+    """Get comprehensive statistics about the EPG database."""
+    try:
+        from ..database.connection import get_db
+
+        db = get_db()
+        stats = {}
+
+        # Basic counts
+        row = db.fetchone("SELECT COUNT(*) FROM channels")
+        stats['total_channels'] = row[0] if row else 0
+
+        row = db.fetchone("SELECT COUNT(*) FROM programs")
+        stats['total_programs'] = row[0] if row else 0
+
+        row = db.fetchone("SELECT COUNT(*) FROM providers")
+        stats['total_providers'] = row[0] if row else 0
+
+        row = db.fetchone("SELECT COUNT(*) FROM channel_aliases")
+        stats['total_aliases'] = row[0] if row else 0
+
+        # Date ranges
+        row = db.fetchone("""
+                          SELECT MIN(start_time)                   as earliest,
+                                 MAX(start_time)                   as latest,
+                                 COUNT(DISTINCT DATE (start_time)) as days_covered
+                          FROM programs
+                          """)
+        if row and row[0]:
+            stats['earliest_program'] = row[0]
+            stats['latest_program'] = row[1]
+            stats['days_covered'] = row[2]
+
+        # Programs per day (last 7 days)
+        rows = db.fetchall("""
+                           SELECT
+                               DATE (start_time) as date, COUNT (*) as count
+                           FROM programs
+                           WHERE start_time > datetime('now', '-7 days')
+                           GROUP BY DATE (start_time)
+                           ORDER BY date DESC
+                           """)
+        stats['programs_last_7_days'] = [{'date': r[0], 'count': r[1]} for r in rows]
+
+        # Import statistics
+        row = db.fetchone("""
+                          SELECT COUNT(*)                                            as total_imports,
+                                 SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful_imports,
+                                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)  as failed_imports,
+                                 MAX(completed_at)                                   as last_import
+                          FROM import_log
+                          """)
+        if row:
+            stats['imports_total'] = row[0] or 0
+            stats['imports_successful'] = row[1] or 0
+            stats['imports_failed'] = row[2] or 0
+            stats['last_import'] = row[3]
+
+        return jsonify(stats)
+
+    except Exception as e:
+        logger.error(f"Error getting statistics: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @api_bp.errorhandler(404)
 def not_found(error):
     """Handle 404 errors."""
