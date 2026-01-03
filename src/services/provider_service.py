@@ -1,12 +1,13 @@
 """
 Provider service for managing EPG data providers.
 """
+
 import logging
-from typing import List, Optional
 from datetime import datetime
+from typing import List, Optional
 
 from ..database.connection import get_db
-from ..database.models import Provider, ChannelMapping
+from ..database.models import ChannelMapping, Provider
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +46,11 @@ class ProviderService:
             raise
 
     def update_provider(
-            self,
-            provider_id: int,
-            name: Optional[str] = None,
-            xmltv_url: Optional[str] = None,
-            enabled: Optional[bool] = None
+        self,
+        provider_id: int,
+        name: Optional[str] = None,
+        xmltv_url: Optional[str] = None,
+        enabled: Optional[bool] = None,
     ) -> Provider:
         """
         Update an existing provider.
@@ -181,7 +182,9 @@ class ProviderService:
             rows = db.fetchall(sql)
             providers = [Provider.from_db_row(tuple(row)) for row in rows]
 
-            logger.debug(f"Listed {len(providers)} providers (enabled_only={enabled_only})")
+            logger.debug(
+                f"Listed {len(providers)} providers (enabled_only={enabled_only})"
+            )
 
             return providers
         except Exception as e:
@@ -189,10 +192,7 @@ class ProviderService:
             raise
 
     def create_channel_mapping(
-            self,
-            provider_id: int,
-            provider_channel_id: str,
-            channel_id: int
+        self, provider_id: int, provider_channel_id: str, channel_id: int
     ) -> ChannelMapping:
         """
         Create a mapping between provider channel ID and logical channel.
@@ -243,9 +243,7 @@ class ProviderService:
         return None
 
     def get_channel_for_provider_channel(
-            self,
-            provider_id: int,
-            provider_channel_id: str
+        self, provider_id: int, provider_channel_id: str
     ) -> Optional[int]:
         """
         Get logical channel ID for a provider's channel ID.

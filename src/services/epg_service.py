@@ -1,12 +1,13 @@
 """
 EPG service for querying program data.
 """
+
 import logging
 from datetime import datetime
 from typing import List, Optional
 
 from ..database.connection import get_db
-from ..database.models import Channel, Program, ChannelAlias
+from ..database.models import Channel, ChannelAlias, Program
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +16,7 @@ class EPGService:
     """Service for EPG data queries."""
 
     def get_programs(
-        self,
-        channel_id: int,
-        start: datetime,
-        end: datetime
+        self, channel_id: int, start: datetime, end: datetime
     ) -> List[Program]:
         """
         Get programs for a channel within a time range.
@@ -144,10 +142,7 @@ class EPGService:
             raise
 
     def create_channel(
-        self,
-        name: str,
-        display_name: str,
-        icon_url: Optional[str] = None
+        self, name: str, display_name: str, icon_url: Optional[str] = None
     ) -> Channel:
         """
         Create a new channel.
@@ -181,10 +176,7 @@ class EPGService:
             raise
 
     def get_or_create_channel(
-        self,
-        name: str,
-        display_name: str,
-        icon_url: Optional[str] = None
+        self, name: str, display_name: str, icon_url: Optional[str] = None
     ) -> Channel:
         """
         Get existing channel or create if it doesn't exist.
@@ -262,11 +254,8 @@ class EPGService:
             raise
 
     def create_channel_alias(
-        self,
-        channel_id: int,
-        alias: str,
-        alias_type: Optional[str] = None
-    ) -> 'ChannelAlias':
+        self, channel_id: int, alias: str, alias_type: Optional[str] = None
+    ) -> "ChannelAlias":
         """
         Create an alias for a channel.
 
@@ -296,10 +285,12 @@ class EPGService:
             # Fetch and return the created alias
             return self.get_channel_alias(alias_id)
         except Exception as e:
-            logger.error(f"Error creating alias '{alias}' for channel {channel_id}: {e}")
+            logger.error(
+                f"Error creating alias '{alias}' for channel {channel_id}: {e}"
+            )
             raise
 
-    def get_channel_alias(self, alias_id: int) -> Optional['ChannelAlias']:
+    def get_channel_alias(self, alias_id: int) -> Optional["ChannelAlias"]:
         """Get channel alias by ID."""
         from ..database.models import ChannelAlias
 
@@ -316,7 +307,7 @@ class EPGService:
             return ChannelAlias.from_db_row(tuple(row))
         return None
 
-    def list_channel_aliases(self, channel_id: int) -> List['ChannelAlias']:
+    def list_channel_aliases(self, channel_id: int) -> List["ChannelAlias"]:
         """
         List all aliases for a channel.
 

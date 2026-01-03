@@ -1,18 +1,20 @@
 """
 Import service for downloading and importing XMLTV data.
 """
+
 import logging
 import os
 import tempfile
-from typing import List, Tuple
 from datetime import datetime
+from typing import List, Tuple
+
 import requests
 
 from ..database.connection import get_db
 from ..database.models import ImportLog, Provider
 from ..parsers.xmltv_parser import XMLTVParser
-from .provider_service import ProviderService
 from .epg_service import EPGService
+from .provider_service import ProviderService
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +48,7 @@ class ImportService:
 
             # Create temporary file
             with tempfile.NamedTemporaryFile(
-                    mode='wb',
-                    suffix='.xml',
-                    delete=False
+                mode="wb", suffix=".xml", delete=False
             ) as tmp_file:
                 # Stream download to avoid memory issues
                 for chunk in response.iter_content(chunk_size=8192):
@@ -77,36 +77,31 @@ class ImportService:
             try:
                 # Get or create logical channel
                 channel = self.epg_service.get_or_create_channel(
-                    name=channel_data['id'],
-                    display_name=channel_data['display_name'],
-                    icon_url=channel_data.get('icon_url')
+                    name=channel_data["id"],
+                    display_name=channel_data["display_name"],
+                    icon_url=channel_data.get("icon_url"),
                 )
 
                 # Check if mapping already exists
-                existing_channel_id = self.provider_service.get_channel_for_provider_channel(
-                    provider_id=provider_id,
-                    provider_channel_id=channel_data['id']
+                existing_channel_id = (
+                    self.provider_service.get_channel_for_provider_channel(
+                        provider_id=provider_id, provider_channel_id=channel_data["id"]
+                    )
                 )
 
                 if existing_channel_id is None:
                     # Create mapping
                     self.provider_service.create_channel_mapping(
                         provider_id=provider_id,
-                        provider_channel_id=channel_data['id'],
-                        channel_id=channel.id
+                        provider_channel_id=channel_data["id"],
+                        channel_id=channel.id,
                     )
 
             except Exception as e:
-                logger.error(
-                    f"Error processing channel {channel_data.get('id')}: {e}"
-                )
+                logger.error(f"Error processing channel {channel_data.get('id')}: {e}")
                 # Continue with next channel
 
-    def _process_programs(
-            self,
-            provider_id: int,
-            file_path: str
-    ) -> Tuple[int, int]:
+    def _process_programs(self, provider_id: int, file_path: str) -> Tuple[int, int]:
         """
         Process programs from XMLTV and insert into database.
 
@@ -140,7 +135,7 @@ class ImportService:
                 # Get logical channel ID from mapping
                 channel_id = self.provider_service.get_channel_for_provider_channel(
                     provider_id=provider_id,
-                    provider_channel_id=program_data['channel_id']
+                    provider_channel_id=program_data["channel_id"],
                 )
 
                 if channel_id is None:
@@ -151,17 +146,17 @@ class ImportService:
                 program_tuple = (
                     channel_id,
                     provider_id,
-                    program_data['start_time'].isoformat(),
-                    program_data['end_time'].isoformat(),
-                    program_data['title'],
-                    program_data.get('subtitle'),
-                    program_data.get('description'),
-                    program_data.get('category'),
-                    program_data.get('episode_num'),
-                    program_data.get('rating'),
-                    program_data.get('actors'),
-                    program_data.get('directors'),
-                    program_data.get('icon_url')
+                    program_data["start_time"].isoformat(),
+                    program_data["end_time"].isoformat(),
+                    program_data["title"],
+                    program_data.get("subtitle"),
+                    program_data.get("description"),
+                    program_data.get("category"),
+                    program_data.get("episode_num"),
+                    program_data.get("rating"),
+                    program_data.get("actors"),
+                    program_data.get("directors"),
+                    program_data.get("icon_url"),
                 )
 
                 batch.append(program_tuple)
@@ -212,7 +207,9 @@ class ImportService:
         if not provider.enabled:
             raise ValueError(f"Provider {provider_id} is disabled")
 
-        logger.info(f"Starting import for provider: {provider.name} (ID: {provider_id})")
+        logger.info(
+            f"Starting import for provider: {provider.name} (ID: {provider_id})"
+        )
 
         # Create import log entry
         log_id = None
@@ -223,7 +220,7 @@ class ImportService:
                     INSERT INTO import_log (provider_id, status)
                     VALUES (?, 'running')
                     """,
-                    (provider_id,)
+                    (provider_id,),
                 )
                 log_id = cursor.lastrowid
         except Exception as e:
@@ -253,7 +250,7 @@ class ImportService:
                         programs_skipped  = ?
                     WHERE id = ?
                     """,
-                    (imported, skipped, log_id)
+                    (imported, skipped, log_id),
                 )
 
             logger.info(f"Successfully imported provider {provider.name}")
@@ -272,7 +269,7 @@ class ImportService:
                         error_message = ?
                     WHERE id = ?
                     """,
-                    (error_msg, log_id)
+                    (error_msg, log_id),
                 )
 
             raise
@@ -300,7 +297,7 @@ class ImportService:
             FROM import_log
             WHERE id = ?
             """,
-            (log_id,)
+            (log_id,),
         )
 
         return ImportLog.from_db_row(tuple(row))

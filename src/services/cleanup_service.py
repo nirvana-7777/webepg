@@ -1,6 +1,7 @@
 """
 Cleanup service for managing data retention.
 """
+
 import logging
 from datetime import datetime, timedelta
 
@@ -45,8 +46,7 @@ class CleanupService:
         try:
             with db.get_cursor() as cursor:
                 cursor.execute(
-                    sql,
-                    (past_cutoff.isoformat(), future_cutoff.isoformat())
+                    sql, (past_cutoff.isoformat(), future_cutoff.isoformat())
                 )
                 deleted_count = cursor.rowcount
 
@@ -111,34 +111,30 @@ class CleanupService:
         try:
             # Count programs
             row = db.fetchone("SELECT COUNT(*) FROM programs")
-            stats['total_programs'] = row[0] if row else 0
+            stats["total_programs"] = row[0] if row else 0
 
             # Count channels
             row = db.fetchone("SELECT COUNT(*) FROM channels")
-            stats['total_channels'] = row[0] if row else 0
+            stats["total_channels"] = row[0] if row else 0
 
             # Count providers
             row = db.fetchone("SELECT COUNT(*) FROM providers")
-            stats['total_providers'] = row[0] if row else 0
+            stats["total_providers"] = row[0] if row else 0
 
             # Get date range of programs
-            row = db.fetchone(
-                "SELECT MIN(start_time), MAX(start_time) FROM programs"
-            )
+            row = db.fetchone("SELECT MIN(start_time), MAX(start_time) FROM programs")
             if row and row[0]:
-                stats['earliest_program'] = row[0]
-                stats['latest_program'] = row[1]
+                stats["earliest_program"] = row[0]
+                stats["latest_program"] = row[1]
 
             # Get last import time
-            row = db.fetchone(
-                """
+            row = db.fetchone("""
                 SELECT MAX(completed_at)
                 FROM import_log
                 WHERE status = 'success'
-                """
-            )
+                """)
             if row and row[0]:
-                stats['last_successful_import'] = row[0]
+                stats["last_successful_import"] = row[0]
 
             logger.debug(f"Database stats: {stats}")
 

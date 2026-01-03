@@ -3,4 +3,4 @@
 
 from .xmltv_parser import XMLTVParser
 
-__all__ = ['XMLTVParser']
+__all__ = ["XMLTVParser"]

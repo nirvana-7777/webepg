@@ -1,10 +1,11 @@
 """
 Streaming XMLTV parser for efficient memory usage.
 """
-import xml.etree.ElementTree as ET
-from typing import Iterator, Dict, Optional
-from datetime import datetime
+
 import logging
+import xml.etree.ElementTree as ET
+from datetime import datetime
+from typing import Dict, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +34,19 @@ class XMLTVParser:
             dt_part = parts[0]
 
             # Parse base datetime
-            dt = datetime.strptime(dt_part[:14], '%Y%m%d%H%M%S')
+            dt = datetime.strptime(dt_part[:14], "%Y%m%d%H%M%S")
 
             # Handle timezone offset if present
             if len(parts) > 1:
                 tz_str = parts[1]
                 # Convert +0100 to hours offset
-                sign = 1 if tz_str[0] == '+' else -1
+                sign = 1 if tz_str[0] == "+" else -1
                 hours = int(tz_str[1:3])
                 minutes = int(tz_str[3:5])
 
                 # Adjust datetime (convert to UTC)
                 from datetime import timedelta
+
                 offset = timedelta(hours=sign * hours, minutes=sign * minutes)
                 dt = dt - offset
 
@@ -54,7 +56,7 @@ class XMLTVParser:
             return None
 
     @staticmethod
-    def _get_text(element: ET.Element, tag: str, lang: str = 'en') -> Optional[str]:
+    def _get_text(element: ET.Element, tag: str, lang: str = "en") -> Optional[str]:
         """
         Get text content from child element, preferring specified language.
 
@@ -68,7 +70,7 @@ class XMLTVParser:
         """
         # Try to find element with preferred language
         for child in element.findall(tag):
-            if child.get('lang', 'en') == lang:
+            if child.get("lang", "en") == lang:
                 return child.text
 
         # Fallback to first element
@@ -86,25 +88,25 @@ class XMLTVParser:
         Returns:
             Dictionary with 'actors' and 'directors' as comma-separated strings
         """
-        credits = {'actors': None, 'directors': None}
+        credits = {"actors": None, "directors": None}
 
-        credits_elem = element.find('credits')
+        credits_elem = element.find("credits")
         if credits_elem is not None:
             # Get actors
             actors = [
-                actor.text for actor in credits_elem.findall('actor')
-                if actor.text
+                actor.text for actor in credits_elem.findall("actor") if actor.text
             ]
             if actors:
-                credits['actors'] = ', '.join(actors)
+                credits["actors"] = ", ".join(actors)
 
             # Get directors
             directors = [
-                director.text for director in credits_elem.findall('director')
+                director.text
+                for director in credits_elem.findall("director")
                 if director.text
             ]
             if directors:
-                credits['directors'] = ', '.join(directors)
+                credits["directors"] = ", ".join(directors)
 
         return credits
 
@@ -123,21 +125,21 @@ class XMLTVParser:
         """
         try:
             # Use iterparse for memory efficiency
-            for event, elem in ET.iterparse(file_path, events=('end',)):
-                if elem.tag == 'channel':
-                    channel_id = elem.get('id')
+            for event, elem in ET.iterparse(file_path, events=("end",)):
+                if elem.tag == "channel":
+                    channel_id = elem.get("id")
                     if not channel_id:
                         elem.clear()
                         continue
 
-                    display_name = self._get_text(elem, 'display-name')
-                    icon_elem = elem.find('icon')
-                    icon_url = icon_elem.get('src') if icon_elem is not None else None
+                    display_name = self._get_text(elem, "display-name")
+                    icon_elem = elem.find("icon")
+                    icon_url = icon_elem.get("src") if icon_elem is not None else None
 
                     yield {
-                        'id': channel_id,
-                        'display_name': display_name or channel_id,
-                        'icon_url': icon_url
+                        "id": channel_id,
+                        "display_name": display_name or channel_id,
+                        "icon_url": icon_url,
                     }
 
                     # Clear element to free memory
@@ -172,11 +174,11 @@ class XMLTVParser:
                 - icon_url: Program icon URL (optional)
         """
         try:
-            for event, elem in ET.iterparse(file_path, events=('end',)):
-                if elem.tag == 'programme':
-                    channel_id = elem.get('channel')
-                    start_str = elem.get('start')
-                    stop_str = elem.get('stop')
+            for event, elem in ET.iterparse(file_path, events=("end",)):
+                if elem.tag == "programme":
+                    channel_id = elem.get("channel")
+                    start_str = elem.get("start")
+                    stop_str = elem.get("stop")
 
                     if not all([channel_id, start_str, stop_str]):
                         elem.clear()
@@ -189,7 +191,7 @@ class XMLTVParser:
                         elem.clear()
                         continue
 
-                    title = self._get_text(elem, 'title')
+                    title = self._get_text(elem, "title")
                     if not title:
                         elem.clear()
                         continue
@@ -198,37 +200,39 @@ class XMLTVParser:
                     credits = self._get_credits(elem)
 
                     # Get category
-                    category_elem = elem.find('category')
+                    category_elem = elem.find("category")
                     category = category_elem.text if category_elem is not None else None
 
                     # Get episode number
-                    episode_elem = elem.find('episode-num')
-                    episode_num = episode_elem.text if episode_elem is not None else None
+                    episode_elem = elem.find("episode-num")
+                    episode_num = (
+                        episode_elem.text if episode_elem is not None else None
+                    )
 
                     # Get rating
-                    rating_elem = elem.find('rating')
+                    rating_elem = elem.find("rating")
                     rating = None
                     if rating_elem is not None:
-                        value_elem = rating_elem.find('value')
+                        value_elem = rating_elem.find("value")
                         rating = value_elem.text if value_elem is not None else None
 
                     # Get icon
-                    icon_elem = elem.find('icon')
-                    icon_url = icon_elem.get('src') if icon_elem is not None else None
+                    icon_elem = elem.find("icon")
+                    icon_url = icon_elem.get("src") if icon_elem is not None else None
 
                     yield {
-                        'channel_id': channel_id,
-                        'start_time': start_time,
-                        'end_time': end_time,
-                        'title': title,
-                        'subtitle': self._get_text(elem, 'sub-title'),
-                        'description': self._get_text(elem, 'desc'),
-                        'category': category,
-                        'episode_num': episode_num,
-                        'rating': rating,
-                        'actors': credits['actors'],
-                        'directors': credits['directors'],
-                        'icon_url': icon_url
+                        "channel_id": channel_id,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "title": title,
+                        "subtitle": self._get_text(elem, "sub-title"),
+                        "description": self._get_text(elem, "desc"),
+                        "category": category,
+                        "episode_num": episode_num,
+                        "rating": rating,
+                        "actors": credits["actors"],
+                        "directors": credits["directors"],
+                        "icon_url": icon_url,
                     }
 
                     # Clear element to free memory

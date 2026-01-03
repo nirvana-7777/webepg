@@ -1,36 +1,28 @@
 """
 Configuration management for EPG service.
 """
+
 import os
-import yaml
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
+
+import yaml
 
 
 class Config:
     """Configuration manager with YAML and environment variable support."""
 
     DEFAULT_CONFIG = {
-        'database': {
-            'path': 'epg.db'
+        "database": {"path": "epg.db"},
+        "server": {
+            "host": "0.0.0.0",
+            "port": 8080,
+            "debug": False,
+            "cors_enabled": False,
         },
-        'server': {
-            'host': '0.0.0.0',
-            'port': 8080,
-            'debug': False,
-            'cors_enabled': False
-        },
-        'retention': {
-            'days': 7
-        },
-        'scheduler': {
-            'import_time': '03:00',
-            'timezone': 'UTC'
-        },
-        'logging': {
-            'level': 'INFO',
-            'format': 'text'  # 'text' or 'json'
-        }
+        "retention": {"days": 7},
+        "scheduler": {"import_time": "03:00", "timezone": "UTC"},
+        "logging": {"level": "INFO", "format": "text"},  # 'text' or 'json'
     }
 
     def __init__(self, config_path: str = None):
@@ -51,7 +43,7 @@ class Config:
 
     def _load_yaml(self, path: str):
         """Load configuration from YAML file."""
-        with open(path, 'r') as f:
+        with open(path, "r") as f:
             yaml_config = yaml.safe_load(f)
             if yaml_config:
                 self._merge_config(self.config, yaml_config)
@@ -67,39 +59,43 @@ class Config:
     def _load_env_vars(self):
         """Load configuration from environment variables."""
         # Database
-        if 'EPG_DB_PATH' in os.environ:
-            self.config['database']['path'] = os.environ['EPG_DB_PATH']
+        if "EPG_DB_PATH" in os.environ:
+            self.config["database"]["path"] = os.environ["EPG_DB_PATH"]
 
         # Server
-        if 'EPG_SERVER_HOST' in os.environ:
-            self.config['server']['host'] = os.environ['EPG_SERVER_HOST']
+        if "EPG_SERVER_HOST" in os.environ:
+            self.config["server"]["host"] = os.environ["EPG_SERVER_HOST"]
 
-        if 'EPG_SERVER_PORT' in os.environ:
-            self.config['server']['port'] = int(os.environ['EPG_SERVER_PORT'])
+        if "EPG_SERVER_PORT" in os.environ:
+            self.config["server"]["port"] = int(os.environ["EPG_SERVER_PORT"])
 
-        if 'EPG_SERVER_DEBUG' in os.environ:
-            self.config['server']['debug'] = os.environ['EPG_SERVER_DEBUG'].lower() == 'true'
+        if "EPG_SERVER_DEBUG" in os.environ:
+            self.config["server"]["debug"] = (
+                os.environ["EPG_SERVER_DEBUG"].lower() == "true"
+            )
 
-        if 'EPG_CORS_ENABLED' in os.environ:
-            self.config['server']['cors_enabled'] = os.environ['EPG_CORS_ENABLED'].lower() == 'true'
+        if "EPG_CORS_ENABLED" in os.environ:
+            self.config["server"]["cors_enabled"] = (
+                os.environ["EPG_CORS_ENABLED"].lower() == "true"
+            )
 
         # Retention
-        if 'EPG_RETENTION_DAYS' in os.environ:
-            self.config['retention']['days'] = int(os.environ['EPG_RETENTION_DAYS'])
+        if "EPG_RETENTION_DAYS" in os.environ:
+            self.config["retention"]["days"] = int(os.environ["EPG_RETENTION_DAYS"])
 
         # Scheduler
-        if 'EPG_IMPORT_TIME' in os.environ:
-            self.config['scheduler']['import_time'] = os.environ['EPG_IMPORT_TIME']
+        if "EPG_IMPORT_TIME" in os.environ:
+            self.config["scheduler"]["import_time"] = os.environ["EPG_IMPORT_TIME"]
 
-        if 'EPG_TIMEZONE' in os.environ:
-            self.config['scheduler']['timezone'] = os.environ['EPG_TIMEZONE']
+        if "EPG_TIMEZONE" in os.environ:
+            self.config["scheduler"]["timezone"] = os.environ["EPG_TIMEZONE"]
 
         # Logging
-        if 'EPG_LOG_LEVEL' in os.environ:
-            self.config['logging']['level'] = os.environ['EPG_LOG_LEVEL'].upper()
+        if "EPG_LOG_LEVEL" in os.environ:
+            self.config["logging"]["level"] = os.environ["EPG_LOG_LEVEL"].upper()
 
-        if 'EPG_LOG_FORMAT' in os.environ:
-            self.config['logging']['format'] = os.environ['EPG_LOG_FORMAT'].lower()
+        if "EPG_LOG_FORMAT" in os.environ:
+            self.config["logging"]["format"] = os.environ["EPG_LOG_FORMAT"].lower()
 
     def get(self, key_path: str, default: Any = None) -> Any:
         """
@@ -115,7 +111,7 @@ class Config:
         Example:
             config.get('database.path')  # Returns 'epg.db'
         """
-        keys = key_path.split('.')
+        keys = key_path.split(".")
         value = self.config
 
         for key in keys:

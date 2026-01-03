@@ -1,10 +1,11 @@
 """
 Database schema definition and migration management for EPG service.
 """
-import sqlite3
+
 import logging
-from typing import Optional
+import sqlite3
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +142,9 @@ class SchemaManager:
             try:
                 conn.execute("PRAGMA journal_mode = WAL")
             except sqlite3.OperationalError as e:
-                logger.warning(f"Could not set WAL mode: {e}. Continuing with default journal mode.")
+                logger.warning(
+                    f"Could not set WAL mode: {e}. Continuing with default journal mode."
+                )
 
             # Create schema
             conn.executescript(cls.SCHEMA_SQL)
@@ -154,7 +157,7 @@ class SchemaManager:
             if current_version is None:
                 conn.execute(
                     "INSERT INTO schema_version (version) VALUES (?)",
-                    (cls.SCHEMA_VERSION,)
+                    (cls.SCHEMA_VERSION,),
                 )
 
             conn.commit()

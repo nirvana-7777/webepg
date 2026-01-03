@@ -1,11 +1,12 @@
 """
 Database connection management with thread-safe pooling.
 """
+
+import logging
 import sqlite3
 import threading
 from contextlib import contextmanager
 from typing import Generator, Optional
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,8 @@ class DatabaseConnection:
         Returns:
             SQLite connection for current thread
         """
-        if not hasattr(self._local, 'connection') or self._local.connection is None:
-            conn = sqlite3.connect(
-                self.db_path,
-                check_same_thread=False,
-                timeout=30.0
-            )
+        if not hasattr(self._local, "connection") or self._local.connection is None:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30.0)
             # Enable foreign keys
             conn.execute("PRAGMA foreign_keys = ON")
             # Use WAL mode for better concurrency
@@ -45,7 +42,9 @@ class DatabaseConnection:
             conn.row_factory = sqlite3.Row
 
             self._local.connection = conn
-            logger.debug(f"Created new database connection for thread {threading.get_ident()}")
+            logger.debug(
+                f"Created new database connection for thread {threading.get_ident()}"
+            )
 
         return self._local.connection
 
@@ -136,10 +135,12 @@ class DatabaseConnection:
 
     def close(self):
         """Close thread-local connection if it exists."""
-        if hasattr(self._local, 'connection') and self._local.connection:
+        if hasattr(self._local, "connection") and self._local.connection:
             self._local.connection.close()
             self._local.connection = None
-            logger.debug(f"Closed database connection for thread {threading.get_ident()}")
+            logger.debug(
+                f"Closed database connection for thread {threading.get_ident()}"
+            )
 
     def close_all(self):
         """Close all connections (call on shutdown)."""

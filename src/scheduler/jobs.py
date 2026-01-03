@@ -1,14 +1,15 @@
 """
 Background job scheduler for EPG service.
 """
+
 import logging
 from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from ..services.import_service import ImportService
 from ..services.cleanup_service import CleanupService
+from ..services.import_service import ImportService
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class JobScheduler:
             config: Configuration dictionary with scheduler settings
         """
         self.config = config
-        self.scheduler = BackgroundScheduler(timezone=config.get('timezone', 'UTC'))
+        self.scheduler = BackgroundScheduler(timezone=config.get("timezone", "UTC"))
         self.import_service = ImportService()
         self.cleanup_service = CleanupService()
 
@@ -35,7 +36,7 @@ class JobScheduler:
         try:
             logs = self.import_service.import_all_providers()
 
-            success_count = sum(1 for log in logs if log.status == 'success')
+            success_count = sum(1 for log in logs if log.status == "success")
             failed_count = len(logs) - success_count
 
             logger.info(
@@ -54,7 +55,7 @@ class JobScheduler:
         logger.info("Starting scheduled cleanup job")
 
         try:
-            retention_days = self.config.get('retention_days', 7)
+            retention_days = self.config.get("retention_days", 7)
             deleted_count = self.cleanup_service.cleanup_old_programs(retention_days)
 
             logger.info(f"Cleanup job completed: {deleted_count} programs deleted")
@@ -65,16 +66,16 @@ class JobScheduler:
     def start(self):
         """Start the scheduler with configured jobs."""
         # Parse import time (e.g., "03:00")
-        import_time = self.config.get('import_time', '03:00')
-        hour, minute = map(int, import_time.split(':'))
+        import_time = self.config.get("import_time", "03:00")
+        hour, minute = map(int, import_time.split(":"))
 
         # Schedule daily import job
         self.scheduler.add_job(
             self._run_import_job,
             trigger=CronTrigger(hour=hour, minute=minute),
-            id='daily_import',
-            name='Daily XMLTV Import',
-            replace_existing=True
+            id="daily_import",
+            name="Daily XMLTV Import",
+            replace_existing=True,
         )
 
         logger.info(f"Scheduled daily import at {import_time}")
@@ -96,12 +97,12 @@ class JobScheduler:
         # Run in a separate job to avoid blocking
         self.scheduler.add_job(
             self._run_import_job,
-            id='manual_import',
-            name='Manual Import',
-            replace_existing=True
+            id="manual_import",
+            name="Manual Import",
+            replace_existing=True,
         )
 
-    def get_next_run_time(self, job_id: str = 'daily_import') -> datetime:
+    def get_next_run_time(self, job_id: str = "daily_import") -> datetime:
         """
         Get next scheduled run time for a job.
 
