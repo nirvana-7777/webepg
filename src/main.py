@@ -6,7 +6,6 @@ import logging
 import logging.config
 import signal
 import sys
-from pathlib import Path
 
 from .api.server import run_server
 from .config import load_config

@@ -115,6 +115,10 @@ class SchemaManager:
     
     CREATE INDEX IF NOT EXISTS idx_channel_aliases_lookup
         ON channel_aliases(alias);
+        
+    -- Prevent duplicate programs
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_programs_unique 
+        ON programs(channel_id, start_time, end_time);
     """
 
     @classmethod

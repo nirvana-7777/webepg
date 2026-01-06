@@ -32,7 +32,7 @@ class EPGService:
         db = get_db()
 
         sql = """
-            SELECT 
+            SELECT
                 id, channel_id, provider_id, start_time, end_time,
                 title, subtitle, description, category, episode_num,
                 rating, actors, directors, icon_url, created_at
