@@ -252,6 +252,44 @@ def import_status():
         logger.error(f"Error getting import status: {e}")
         return jsonify({"error": str(e)}), 500
 
+@api_bp.route("/aliases", methods=["GET"])
+def list_all_aliases():
+    """List all aliases across all channels."""
+    try:
+        aliases = epg_service.list_all_aliases()
+
+        # Basic response
+        return jsonify({
+            "count": len(aliases),
+            "aliases": [alias.to_dict() for alias in aliases]
+        })
+    except Exception as e:
+        logger.error(f"Error listing all aliases: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@api_bp.route("/aliases/mapping", methods=["GET"])
+def get_alias_mapping():
+    """Get optimized alias-to-channel mapping."""
+    try:
+        # Returns a more efficient structure for lookups
+        mapping = {}
+
+        aliases = epg_service.list_all_aliases()
+        for alias in aliases:
+            mapping[alias.alias] = {
+                "channel_id": alias.channel_id,
+                "channel_name": alias.channel.name if alias.channel else None,
+                "alias_type": alias.alias_type,
+                "alias_id": alias.id
+            }
+
+        return jsonify({
+            "count": len(mapping),
+            "mapping": mapping
+        })
+    except Exception as e:
+        logger.error(f"Error getting alias mapping: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @api_bp.route("/channels/<channel_identifier>/aliases", methods=["GET"])
 def list_channel_aliases(channel_identifier):
