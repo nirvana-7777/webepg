@@ -229,22 +229,38 @@ class EPGService:
         """List all aliases across all channels."""
         from ..database.models import ChannelAlias
 
-        rows = self.db.fetchall("""
-                                SELECT ca.id,
-                                       ca.channel_id,
-                                       ca.alias,
-                                       ca.alias_type,
-                                       c.name as channel_name
-                                FROM channel_aliases ca
-                                         JOIN channels c ON ca.channel_id = c.id
-                                ORDER BY c.name, ca.alias
-                                """)
+        db = get_db()
 
-        aliases = []
-        for row in rows:
-            aliases.append(ChannelAlias.from_db_row(row))
+        sql = """
+              SELECT ca.id, \
+                     ca.channel_id, \
+                     ca.alias, \
+                     ca.alias_type,
+                     c.name as channel_name, \
+                     c.display_name
+              FROM channel_aliases ca
+                       JOIN channels c ON ca.channel_id = c.id
+              ORDER BY c.display_name, ca.alias \
+              """
 
-        return aliases
+        try:
+            rows = db.fetchall(sql)
+            aliases = []
+
+            for row in rows:
+                # Create alias with additional channel info
+                alias = ChannelAlias.from_db_row(tuple(row))
+                # Add channel info as attributes
+                alias.channel_name = row[4] if row[4] else None
+                alias.channel_display_name = row[5] if row[5] else None
+                aliases.append(alias)
+
+            logger.debug(f"Found {len(aliases)} total aliases")
+            return aliases
+
+        except Exception as e:
+            logger.error(f"Error listing all aliases: {e}")
+            raise
 
     def list_all_aliases_paginated(self, page=1, per_page=100,
                                    alias_type=None, channel_id=None):
@@ -423,15 +439,19 @@ class EPGService:
         db = get_db()
 
         sql = """
-            SELECT id, channel_id, alias, alias_type, created_at
-            FROM channel_aliases
-            WHERE id = ?
-        """
+              SELECT id, channel_id, alias, alias_type, created_at
+              FROM channel_aliases
+              WHERE id = ? \
+              """
 
-        row = db.fetchone(sql, (alias_id,))
-        if row:
-            return ChannelAlias.from_db_row(tuple(row))
-        return None
+        try:
+            row = db.fetchone(sql, (alias_id,))
+            if row:
+                return ChannelAlias.from_db_row(tuple(row))
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching alias {alias_id}: {e}")
+            raise
 
     def list_channel_aliases(self, channel_id: int) -> List["ChannelAlias"]:
         """

@@ -8,38 +8,44 @@ from typing import Optional
 
 
 @dataclass
-class Provider:
-    """EPG data provider."""
+class ChannelAlias:
+    """Channel alias for flexible API access."""
 
     id: Optional[int] = None
-    name: str = ""
-    xmltv_url: str = ""
-    enabled: bool = True
+    channel_id: int = 0
+    alias: str = ""
+    alias_type: Optional[str] = None
     created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
 
     @classmethod
-    def from_db_row(cls, row: tuple) -> "Provider":
-        """Create Provider from database row."""
+    def from_db_row(cls, row: tuple) -> "ChannelAlias":
+        """Create ChannelAlias from database row."""
         return cls(
             id=row[0],
-            name=row[1],
-            xmltv_url=row[2],
-            enabled=bool(row[3]),
+            channel_id=row[1],
+            alias=row[2],
+            alias_type=row[3],
             created_at=datetime.fromisoformat(row[4]) if row[4] else None,
-            updated_at=datetime.fromisoformat(row[5]) if row[5] else None,
         )
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "id": self.id,
-            "name": self.name,
-            "xmltv_url": self.xmltv_url,
-            "enabled": self.enabled,
+            "channel_id": self.channel_id,
+            "alias": self.alias,
+            "alias_type": self.alias_type,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+        # Add any additional attributes that might have been set
+        if hasattr(self, 'channel_name'):
+            result["channel_name"] = self.channel_name
+
+        if hasattr(self, 'channel_display_name'):
+            result["channel_display_name"] = self.channel_display_name
+
+        return result
 
 
 @dataclass
