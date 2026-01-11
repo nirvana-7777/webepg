@@ -231,14 +231,14 @@ class EPGService:
 
         db = get_db()
 
-        # FIXED: Remove backslashes from SQL
         sql = """
               SELECT ca.id, \
                      ca.channel_id, \
                      ca.alias, \
-                     ca.alias_type,
-                     c.name as channel_name, \
-                     c.display_name
+                     ca.alias_type, \
+                     ca.created_at,
+                     c.name         as channel_name, \
+                     c.display_name as channel_display_name
               FROM channel_aliases ca
                        JOIN channels c ON ca.channel_id = c.id
               ORDER BY c.display_name, ca.alias \
@@ -266,9 +266,7 @@ class EPGService:
     def list_all_aliases_paginated(self, page=1, per_page=100,
                                    alias_type=None, channel_id=None):
         """List all aliases with pagination and filtering."""
-        from ..database.models import ChannelAlias
-
-        db = get_db()  # FIX: Get database connection
+        db = get_db()
         offset = (page - 1) * per_page
 
         # Build WHERE clause
@@ -295,7 +293,7 @@ class EPGService:
 
         # Get paginated results
         rows = db.fetchall(f"""
-            SELECT ca.id, ca.channel_id, ca.alias, ca.alias_type,
+            SELECT ca.id, ca.channel_id, ca.alias, ca.alias_type, ca.created_at,
                    c.name as channel_name, c.display_name as channel_display_name
             FROM channel_aliases ca
             JOIN channels c ON ca.channel_id = c.id
@@ -306,10 +304,15 @@ class EPGService:
 
         aliases = []
         for row in rows:
-            alias = ChannelAlias.from_db_row(tuple(row))
-            alias.channel_name = row[4] if row[4] else None
-            alias.channel_display_name = row[5] if row[5] else None
-            aliases.append(alias)
+            aliases.append({
+                "id": row[0],
+                "channel_id": row[1],
+                "alias": row[2],
+                "alias_type": row[3],
+                "created_at": row[4],
+                "channel_name": row[5] if row[5] else None,
+                "channel_display_name": row[6] if row[6] else None
+            })
 
         return aliases, total
 
