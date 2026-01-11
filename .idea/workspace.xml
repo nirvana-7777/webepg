@@ -5,7 +5,6 @@
       <change afterPath="$PROJECT_DIR$/epg.db" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/implementation_plan.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/api/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/handlers.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/database/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/models.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/services/epg_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/epg_service.py" afterDir="false" />
     </list>
@@ -108,7 +107,7 @@
       <workItem from="1767706562649" duration="19000" />
       <workItem from="1767715005631" duration="2149000" />
       <workItem from="1767778069344" duration="1254000" />
-      <workItem from="1768069361484" duration="3361000" />
+      <workItem from="1768069361484" duration="4289000" />
     </task>
     <task id="LOCAL-00001" summary="Initial">
       <option name="closed" value="true" />
@@ -214,7 +213,15 @@
       <option name="project" value="LOCAL" />
       <updated>1768079917196</updated>
     </task>
-    <option name="localTasksCounter" value="14" />
+    <task id="LOCAL-00014" summary="Introduce Channel Aliases">
+      <option name="closed" value="true" />
+      <created>1768128566638</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1768128566638</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

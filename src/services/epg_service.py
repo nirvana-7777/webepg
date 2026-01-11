@@ -231,6 +231,7 @@ class EPGService:
 
         db = get_db()
 
+        # FIXED: Remove backslashes from SQL
         sql = """
               SELECT ca.id, \
                      ca.channel_id, \
@@ -450,6 +451,7 @@ class EPGService:
 
         db = get_db()
 
+        # FIXED: Remove backslash
         sql = """
               SELECT id, channel_id, alias, alias_type, created_at
               FROM channel_aliases
