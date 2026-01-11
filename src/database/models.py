@@ -17,36 +17,6 @@ class ChannelAlias:
     alias_type: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    @classmethod
-    def from_db_row(cls, row: tuple) -> "ChannelAlias":
-        """Create ChannelAlias from database row."""
-        return cls(
-            id=row[0],
-            channel_id=row[1],
-            alias=row[2],
-            alias_type=row[3],
-            created_at=datetime.fromisoformat(row[4]) if row[4] else None,
-        )
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for JSON serialization."""
-        result = {
-            "id": self.id,
-            "channel_id": self.channel_id,
-            "alias": self.alias,
-            "alias_type": self.alias_type,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-        }
-
-        # Add any additional attributes that might have been set
-        if hasattr(self, 'channel_name'):
-            result["channel_name"] = self.channel_name
-
-        if hasattr(self, 'channel_display_name'):
-            result["channel_display_name"] = self.channel_display_name
-
-        return result
-
 
 @dataclass
 class Channel:
@@ -125,7 +95,7 @@ class ChannelAlias:
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "id": self.id,
             "channel_id": self.channel_id,
             "alias": self.alias,
@@ -133,6 +103,14 @@ class ChannelAlias:
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
+        # Add any additional attributes that might have been set
+        if hasattr(self, 'channel_name'):
+            result["channel_name"] = self.channel_name
+
+        if hasattr(self, 'channel_display_name'):
+            result["channel_display_name"] = self.channel_display_name
+
+        return result
 
 @dataclass
 class Program:

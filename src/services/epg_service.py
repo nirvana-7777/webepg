@@ -267,6 +267,7 @@ class EPGService:
         """List all aliases with pagination and filtering."""
         from ..database.models import ChannelAlias
 
+        db = get_db()  # FIX: Get database connection
         offset = (page - 1) * per_page
 
         # Build WHERE clause
@@ -284,88 +285,99 @@ class EPGService:
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
         # Get total count
-        count_row = self.db.fetchone(f"""
-             SELECT COUNT(*)
-             FROM channel_aliases ca
-             WHERE {where_clause}
-         """, tuple(params))
+        count_row = db.fetchone(f"""
+            SELECT COUNT(*)
+            FROM channel_aliases ca
+            WHERE {where_clause}
+        """, tuple(params))
         total = count_row[0] if count_row else 0
 
         # Get paginated results
-        rows = self.db.fetchall(f"""
-             SELECT ca.id, ca.channel_id, ca.alias, ca.alias_type,
-                    c.name as channel_name
-             FROM channel_aliases ca
-             JOIN channels c ON ca.channel_id = c.id
-             WHERE {where_clause}
-             ORDER BY c.name, ca.alias
-             LIMIT ? OFFSET ?
-         """, tuple(params + [per_page, offset]))
+        rows = db.fetchall(f"""
+            SELECT ca.id, ca.channel_id, ca.alias, ca.alias_type,
+                   c.name as channel_name, c.display_name as channel_display_name
+            FROM channel_aliases ca
+            JOIN channels c ON ca.channel_id = c.id
+            WHERE {where_clause}
+            ORDER BY c.display_name, ca.alias
+            LIMIT ? OFFSET ?
+        """, tuple(params + [per_page, offset]))
 
-        aliases = [ChannelAlias.from_db_row(row) for row in rows]
+        aliases = []
+        for row in rows:
+            alias = ChannelAlias.from_db_row(tuple(row))
+            alias.channel_name = row[4] if row[4] else None
+            alias.channel_display_name = row[5] if row[5] else None
+            aliases.append(alias)
 
         return aliases, total
 
     def get_alias_statistics(self):
         """Get statistics about aliases."""
-        from collections import defaultdict
+        db = get_db()  # FIX: Get database connection
 
-        # Get basic counts
-        rows = self.db.fetchall("""
-                                SELECT COUNT(DISTINCT ca.id)         as total_aliases,
-                                       COUNT(DISTINCT ca.channel_id) as channels_with_aliases,
-                                       COUNT(DISTINCT c.id)          as total_channels,
-                                       AVG(alias_count)              as avg_aliases_per_channel
-                                FROM channels c
-                                         LEFT JOIN (SELECT channel_id, COUNT(*) as alias_count
-                                                    FROM channel_aliases
-                                                    GROUP BY channel_id) ca ON c.id = ca.channel_id
-                                """)
+        stats = {}
 
-        stats = {
-            "total_aliases": rows[0][0] or 0,
-            "channels_with_aliases": rows[0][1] or 0,
-            "total_channels": rows[0][2] or 0,
-            "avg_aliases_per_channel": float(rows[0][3] or 0)
-        }
+        try:
+            # Get basic counts
+            rows = db.fetchall("""
+                               SELECT COUNT(DISTINCT ca.id)         as total_aliases,
+                                      COUNT(DISTINCT ca.channel_id) as channels_with_aliases,
+                                      COUNT(DISTINCT c.id)          as total_channels,
+                                      AVG(alias_count)              as avg_aliases_per_channel
+                               FROM channels c
+                                        LEFT JOIN (SELECT channel_id, COUNT(*) as alias_count
+                                                   FROM channel_aliases
+                                                   GROUP BY channel_id) ca ON c.id = ca.channel_id
+                               """)
 
-        # Get alias type distribution
-        type_rows = self.db.fetchall("""
-                                     SELECT alias_type, COUNT(*) as count
-                                     FROM channel_aliases
-                                     GROUP BY alias_type
-                                     ORDER BY count DESC
-                                     """)
+            if rows and rows[0]:
+                stats["total_aliases"] = rows[0][0] or 0
+                stats["channels_with_aliases"] = rows[0][1] or 0
+                stats["total_channels"] = rows[0][2] or 0
+                stats["avg_aliases_per_channel"] = float(rows[0][3] or 0)
 
-        stats["type_distribution"] = {row[0]: row[1] for row in type_rows}
+            # Get alias type distribution
+            type_rows = db.fetchall("""
+                                    SELECT alias_type, COUNT(*) as count
+                                    FROM channel_aliases
+                                    GROUP BY alias_type
+                                    ORDER BY count DESC
+                                    """)
 
-        # Get channel with most aliases
-        top_row = self.db.fetchone("""
-                                   SELECT c.id, c.name, COUNT(ca.id) as alias_count
-                                   FROM channels c
-                                            JOIN channel_aliases ca ON c.id = ca.channel_id
-                                   GROUP BY c.id, c.name
-                                   ORDER BY alias_count DESC LIMIT 1
-                                   """)
+            stats["type_distribution"] = {row[0]: row[1] for row in type_rows if row[0]}
 
-        if top_row:
-            stats["most_aliases_channel"] = {
-                "channel_id": top_row[0],
-                "channel_name": top_row[1],
-                "alias_count": top_row[2]
-            }
+            # Get channel with most aliases
+            top_row = db.fetchone("""
+                                  SELECT c.id, c.name, COUNT(ca.id) as alias_count
+                                  FROM channels c
+                                           JOIN channel_aliases ca ON c.id = ca.channel_id
+                                  GROUP BY c.id, c.name
+                                  ORDER BY alias_count DESC LIMIT 1
+                                  """)
 
-        # Count channels without aliases
-        no_alias_row = self.db.fetchone("""
-                                        SELECT COUNT(*)
-                                        FROM channels c
-                                                 LEFT JOIN channel_aliases ca ON c.id = ca.channel_id
-                                        WHERE ca.id IS NULL
-                                        """)
+            if top_row:
+                stats["most_aliases_channel"] = {
+                    "channel_id": top_row[0],
+                    "channel_name": top_row[1],
+                    "alias_count": top_row[2]
+                }
 
-        stats["channels_without_aliases"] = no_alias_row[0] if no_alias_row else 0
+            # Count channels without aliases
+            no_alias_row = db.fetchone("""
+                                       SELECT COUNT(*)
+                                       FROM channels c
+                                                LEFT JOIN channel_aliases ca ON c.id = ca.channel_id
+                                       WHERE ca.id IS NULL
+                                       """)
 
-        return stats
+            stats["channels_without_aliases"] = no_alias_row[0] if no_alias_row else 0
+
+            return stats
+
+        except Exception as e:
+            logger.error(f"Error getting alias statistics: {e}")
+            raise
 
     def get_channel_by_alias(self, alias: str) -> Optional[Channel]:
         """

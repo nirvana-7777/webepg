@@ -267,18 +267,27 @@ def list_all_aliases():
         logger.error(f"Error listing all aliases: {e}")
         return jsonify({"error": str(e)}), 500
 
+
 @api_bp.route("/aliases/mapping", methods=["GET"])
 def get_alias_mapping():
     """Get optimized alias-to-channel mapping."""
     try:
-        # Returns a more efficient structure for lookups
         mapping = {}
 
+        # Get channels first for lookup
+        channels_by_id = {}
+        for channel in epg_service.list_channels():
+            channels_by_id[channel.id] = channel
+
+        # Get aliases
         aliases = epg_service.list_all_aliases()
+
         for alias in aliases:
+            channel = channels_by_id.get(alias.channel_id)
             mapping[alias.alias] = {
                 "channel_id": alias.channel_id,
-                "channel_name": alias.channel.name if alias.channel else None,
+                "channel_name": channel.name if channel else None,
+                "channel_display_name": channel.display_name if channel else None,
                 "alias_type": alias.alias_type,
                 "alias_id": alias.id
             }
