@@ -231,6 +231,7 @@ class EPGService:
 
         db = get_db()
 
+        # ADD ca.created_at to the SELECT statement
         sql = """
               SELECT ca.id, \
                      ca.channel_id, \
@@ -249,11 +250,16 @@ class EPGService:
             aliases = []
 
             for row in rows:
-                # Create alias with additional channel info
-                alias = ChannelAlias.from_db_row(tuple(row))
+                # Now row has correct order:
+                # 0: ca.id, 1: ca.channel_id, 2: ca.alias, 3: ca.alias_type,
+                # 4: ca.created_at, 5: c.name, 6: c.display_name
+
+                alias = ChannelAlias.from_db_row(tuple(row[:5]))  # Pass first 5 columns
+
                 # Add channel info as attributes
-                alias.channel_name = row[4] if row[4] else None
-                alias.channel_display_name = row[5] if row[5] else None
+                alias.channel_name = row[5] if len(row) > 5 and row[5] else None
+                alias.channel_display_name = row[6] if len(row) > 6 and row[6] else None
+
                 aliases.append(alias)
 
             logger.debug(f"Found {len(aliases)} total aliases")
@@ -291,7 +297,7 @@ class EPGService:
         """, tuple(params))
         total = count_row[0] if count_row else 0
 
-        # Get paginated results
+        # Get paginated results - MAKE SURE TO INCLUDE ca.created_at
         rows = db.fetchall(f"""
             SELECT ca.id, ca.channel_id, ca.alias, ca.alias_type, ca.created_at,
                    c.name as channel_name, c.display_name as channel_display_name
@@ -304,15 +310,10 @@ class EPGService:
 
         aliases = []
         for row in rows:
-            aliases.append({
-                "id": row[0],
-                "channel_id": row[1],
-                "alias": row[2],
-                "alias_type": row[3],
-                "created_at": row[4],
-                "channel_name": row[5] if row[5] else None,
-                "channel_display_name": row[6] if row[6] else None
-            })
+            alias = ChannelAlias.from_db_row(tuple(row[:5]))
+            alias.channel_name = row[5] if len(row) > 5 and row[5] else None
+            alias.channel_display_name = row[6] if len(row) > 6 and row[6] else None
+            aliases.append(alias)
 
         return aliases, total
 
