@@ -5,7 +5,6 @@ Import service for downloading and importing XMLTV data.
 import logging
 import os
 import tempfile
-from datetime import datetime
 from typing import List, Tuple
 
 import requests
@@ -104,34 +103,21 @@ class ImportService:
 
     def _process_programs(self, provider_id: int, file_path: str) -> Tuple[int, int]:
         """
-        Process programs from XMLTV with deduplication logic.
-
-        Args:
-            provider_id: Provider ID
-            file_path: Path to XMLTV file
-
-        Returns:
-            Tuple of (programs_imported, programs_updated)
+        Process programs from XMLTV with UPSERT logic to prevent duplicates.
         """
-        logger.info(
-            f"Processing programs for provider {provider_id} with deduplication"
-        )
-
         db = get_db()
         imported = 0
         updated = 0
         skipped = 0
-        batch_size = 1000
 
-        # New UPSERT approach
+        # UPSERT SQL - updates if duplicate, inserts if new
         upsert_sql = """
                      INSERT INTO programs (channel_id, provider_id, start_time, end_time, \
                                            title, subtitle, description, category, episode_num, \
-                                           rating, actors, directors, icon_url, created_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(channel_id, start_time, end_time) 
+                                           rating, actors, directors, icon_url) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(channel_id, start_time, end_time, title) 
         DO \
                      UPDATE SET
-                         title = excluded.title, \
                          subtitle = COALESCE (excluded.subtitle, programs.subtitle), \
                          description = COALESCE (excluded.description, programs.description), \
                          category = COALESCE (excluded.category, programs.category), \
@@ -141,48 +127,14 @@ class ImportService:
                          directors = COALESCE (excluded.directors, programs.directors), \
                          icon_url = COALESCE (excluded.icon_url, programs.icon_url), \
                          created_at = CURRENT_TIMESTAMP \
-                     WHERE excluded.created_at > programs.created_at OR programs.created_at IS NULL \
                      """
 
-        # Alternative: For fuzzy time matching (more aggressive deduplication)
-        check_similar_sql = """
-                            SELECT id, start_time, end_time, title, created_at
-                            FROM programs
-                            WHERE channel_id = ?
-                              AND provider_id = ?
-                              AND title LIKE ?
-                              AND ABS(strftime('%s', start_time) - strftime('%s', ?)) < 300 -- Within 5 minutes
-                              AND start_time BETWEEN datetime(?, '-10 minutes') AND datetime(?, '+10 minutes') LIMIT 1 \
-                            """
-
-        update_sql = """
-                     UPDATE programs
-                     SET start_time  = ?,
-                         end_time    = ?,
-                         subtitle    = COALESCE(?, subtitle),
-                         description = COALESCE(?, description),
-                         category    = COALESCE(?, category),
-                         episode_num = COALESCE(?, episode_num),
-                         rating      = COALESCE(?, rating),
-                         actors      = COALESCE(?, actors),
-                         directors   = COALESCE(?, directors),
-                         icon_url    = COALESCE(?, icon_url),
-                         created_at  = CURRENT_TIMESTAMP
-                     WHERE id = ? \
-                     """
-
-        insert_sql = """
-                     INSERT INTO programs (channel_id, provider_id, start_time, end_time, \
-                                           title, subtitle, description, category, episode_num, \
-                                           rating, actors, directors, icon_url) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
-                     """
-
-        batch_inserts = []
+        batch = []
+        batch_size = 500
 
         for program_data in self.parser.parse_programs(file_path):
             try:
-                # Get logical channel ID from mapping
+                # Get logical channel ID
                 channel_id = self.provider_service.get_channel_for_provider_channel(
                     provider_id=provider_id,
                     provider_channel_id=program_data["channel_id"],
@@ -192,109 +144,59 @@ class ImportService:
                     skipped += 1
                     continue
 
-                # Prepare program data
-                start_time = program_data["start_time"].isoformat()
-                end_time = program_data["end_time"].isoformat()
-                title = program_data["title"]
+                batch.append((
+                    channel_id,
+                    provider_id,
+                    program_data["start_time"].isoformat(),
+                    program_data["end_time"].isoformat(),
+                    program_data["title"],
+                    program_data.get("subtitle"),
+                    program_data.get("description"),
+                    program_data.get("category"),
+                    program_data.get("episode_num"),
+                    program_data.get("rating"),
+                    program_data.get("actors"),
+                    program_data.get("directors"),
+                    program_data.get("icon_url"),
+                ))
 
-                # Check for similar existing program
-                similar_program = db.fetchone(
-                    check_similar_sql,
-                    (
-                        channel_id,
-                        provider_id,
-                        f"%{title}%",  # Fuzzy title match
-                        start_time,
-                        start_time,
-                        start_time,
-                    ),
-                )
-
-                if similar_program:
-                    # Update existing program
-                    (
-                        existing_id,
-                        existing_start,
-                        existing_end,
-                        existing_title,
-                        existing_created,
-                    ) = similar_program
-
-                    logger.debug(
-                        f"Updating existing program {existing_id}: "
-                        f"{existing_title} ({existing_start} -> {start_time})"
-                    )
-
-                    # Only update if the new data is newer
-                    program_created = (
-                        datetime.fromisoformat(existing_created)
-                        if existing_created
-                        else None
-                    )
-
-                    # Update with new data
-                    db.execute(
-                        update_sql,
-                        (
-                            start_time,
-                            end_time,
-                            program_data.get("subtitle"),
-                            program_data.get("description"),
-                            program_data.get("category"),
-                            program_data.get("episode_num"),
-                            program_data.get("rating"),
-                            program_data.get("actors"),
-                            program_data.get("directors"),
-                            program_data.get("icon_url"),
-                            existing_id,
-                        ),
-                    )
-                    updated += 1
-
-                else:
-                    # Insert new program
-                    batch_inserts.append(
-                        (
-                            channel_id,
-                            provider_id,
-                            start_time,
-                            end_time,
-                            title,
-                            program_data.get("subtitle"),
-                            program_data.get("description"),
-                            program_data.get("category"),
-                            program_data.get("episode_num"),
-                            program_data.get("rating"),
-                            program_data.get("actors"),
-                            program_data.get("directors"),
-                            program_data.get("icon_url"),
-                        )
-                    )
-
-                    # Execute batch when full
-                    if len(batch_inserts) >= batch_size:
-                        db.executemany(insert_sql, batch_inserts)
-                        imported += len(batch_inserts)
-                        batch_inserts = []
-                        logger.debug(
-                            f"Imported batch: {imported} total, {updated} updated"
-                        )
+                if len(batch) >= batch_size:
+                    try:
+                        db.executemany(upsert_sql, batch)
+                        # Note: We can't easily distinguish inserts vs updates with UPSERT
+                        imported += len(batch)
+                    except Exception as e:
+                        logger.error(f"Batch upsert failed: {e}")
+                        # Fall back to individual inserts/updates
+                        for item in batch:
+                            try:
+                                db.execute(upsert_sql, item)
+                                imported += 1
+                            except:
+                                skipped += 1
+                    batch = []
 
             except Exception as e:
                 logger.error(f"Error processing program: {e}")
                 skipped += 1
 
-        # Insert remaining batch
-        if batch_inserts:
-            db.executemany(insert_sql, batch_inserts)
-            imported += len(batch_inserts)
+        # Process remaining batch
+        if batch:
+            try:
+                db.executemany(upsert_sql, batch)
+                imported += len(batch)
+            except Exception as e:
+                logger.error(f"Final batch upsert failed: {e}")
+                # Fall back
+                for item in batch:
+                    try:
+                        db.execute(upsert_sql, item)
+                        imported += 1
+                    except:
+                        skipped += 1
 
-        logger.info(
-            f"Completed program import for provider {provider_id}: "
-            f"{imported} new, {updated} updated, {skipped} skipped"
-        )
-
-        return imported + updated, skipped
+        logger.info(f"UPSERT completed: {imported} processed, {skipped} skipped")
+        return imported, skipped
 
     def import_provider(self, provider_id: int) -> ImportLog:
         """
