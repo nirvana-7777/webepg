@@ -98,7 +98,9 @@ class CleanupService:
             logger.error(f"Error cleaning up import logs: {e}")
             raise
 
-    def deduplicate_programs(self, time_tolerance_minutes: int = 5, title_similarity_threshold: float = 0.8) -> dict:
+    def deduplicate_programs(
+        self, time_tolerance_minutes: int = 5, title_similarity_threshold: float = 0.8
+    ) -> dict:
         """
         Find and remove fuzzy duplicate programs.
 
@@ -114,7 +116,7 @@ class CleanupService:
         stats = {
             "duplicate_groups": 0,
             "duplicates_removed": 0,
-            "fuzzy_matches_considered": True
+            "fuzzy_matches_considered": True,
         }
 
         try:
@@ -176,7 +178,7 @@ class CleanupService:
 
             potential_dups = db.fetchall(
                 find_potential_duplicates_sql,
-                (time_tolerance_seconds, title_similarity_threshold)
+                (time_tolerance_seconds, title_similarity_threshold),
             )
 
             if not potential_dups:
@@ -186,7 +188,19 @@ class CleanupService:
             # Group duplicates by channel and approximate time
             duplicate_groups = {}
             for row in potential_dups:
-                id1, id2, channel_id, title1, title2, start1, start2, time_diff, similarity, created1, created2 = row
+                (
+                    id1,
+                    id2,
+                    channel_id,
+                    title1,
+                    title2,
+                    start1,
+                    start2,
+                    time_diff,
+                    similarity,
+                    created1,
+                    created2,
+                ) = row
 
                 # Create a group key based on channel and time window
                 time_key = f"{channel_id}_{start1[:13]}"  # Channel + hour precision
@@ -196,7 +210,7 @@ class CleanupService:
                         "channel_id": channel_id,
                         "program_ids": set(),
                         "titles": set(),
-                        "created_times": {}
+                        "created_times": {},
                     }
 
                 duplicate_groups[time_key]["program_ids"].add(id1)
@@ -222,7 +236,9 @@ class CleanupService:
 
                 for prog_id in program_ids:
                     created_time = group_data["created_times"].get(prog_id)
-                    if created_time and (newest_time is None or created_time > newest_time):
+                    if created_time and (
+                        newest_time is None or created_time > newest_time
+                    ):
                         newest_time = created_time
                         newest_id = prog_id
 
@@ -235,7 +251,7 @@ class CleanupService:
 
                 if ids_to_remove:
                     # Delete the older duplicates
-                    placeholders = ','.join(['?'] * len(ids_to_remove))
+                    placeholders = ",".join(["?"] * len(ids_to_remove))
                     delete_sql = f"DELETE FROM programs WHERE id IN ({placeholders})"
 
                     with db.get_cursor() as cursor:

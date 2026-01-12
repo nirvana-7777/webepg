@@ -144,21 +144,23 @@ class ImportService:
                     skipped += 1
                     continue
 
-                batch.append((
-                    channel_id,
-                    provider_id,
-                    program_data["start_time"].isoformat(),
-                    program_data["end_time"].isoformat(),
-                    program_data["title"],
-                    program_data.get("subtitle"),
-                    program_data.get("description"),
-                    program_data.get("category"),
-                    program_data.get("episode_num"),
-                    program_data.get("rating"),
-                    program_data.get("actors"),
-                    program_data.get("directors"),
-                    program_data.get("icon_url"),
-                ))
+                batch.append(
+                    (
+                        channel_id,
+                        provider_id,
+                        program_data["start_time"].isoformat(),
+                        program_data["end_time"].isoformat(),
+                        program_data["title"],
+                        program_data.get("subtitle"),
+                        program_data.get("description"),
+                        program_data.get("category"),
+                        program_data.get("episode_num"),
+                        program_data.get("rating"),
+                        program_data.get("actors"),
+                        program_data.get("directors"),
+                        program_data.get("icon_url"),
+                    )
+                )
 
                 if len(batch) >= batch_size:
                     try:

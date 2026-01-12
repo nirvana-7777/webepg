@@ -457,8 +457,8 @@ def preview_duplicates():
     Preview fuzzy duplicate programs without removing them.
     """
     try:
-        from ..services.cleanup_service import CleanupService
         from ..database.connection import get_db
+        from ..services.cleanup_service import CleanupService
 
         cleanup_service = CleanupService()
         db = get_db()
@@ -519,15 +519,26 @@ def preview_duplicates():
         time_tolerance_seconds = time_tolerance * 60
 
         potential_dups = db.fetchall(
-            find_potential_duplicates_sql,
-            (time_tolerance_seconds,)
+            find_potential_duplicates_sql, (time_tolerance_seconds,)
         )
 
         duplicate_list = []
         seen_pairs = set()
 
         for row in potential_dups:
-            id1, id2, channel_id, title1, title2, start1, start2, time_diff, similarity, created1, created2 = row
+            (
+                id1,
+                id2,
+                channel_id,
+                title1,
+                title2,
+                start1,
+                start2,
+                time_diff,
+                similarity,
+                created1,
+                created2,
+            ) = row
 
             # Avoid duplicates in the list
             pair_key = f"{min(id1, id2)}_{max(id1, id2)}"
@@ -539,51 +550,56 @@ def preview_duplicates():
             channel_sql = "SELECT name, display_name FROM channels WHERE id = ?"
             channel_row = db.fetchone(channel_sql, (channel_id,))
 
-            duplicate_list.append({
-                "programs": [
-                    {
-                        "id": id1,
-                        "title": title1,
-                        "start_time": start1,
-                        "created_at": created1
+            duplicate_list.append(
+                {
+                    "programs": [
+                        {
+                            "id": id1,
+                            "title": title1,
+                            "start_time": start1,
+                            "created_at": created1,
+                        },
+                        {
+                            "id": id2,
+                            "title": title2,
+                            "start_time": start2,
+                            "created_at": created2,
+                        },
+                    ],
+                    "channel": {
+                        "id": channel_id,
+                        "name": channel_row[0] if channel_row else None,
+                        "display_name": channel_row[1] if channel_row else None,
                     },
-                    {
-                        "id": id2,
-                        "title": title2,
-                        "start_time": start2,
-                        "created_at": created2
-                    }
-                ],
-                "channel": {
-                    "id": channel_id,
-                    "name": channel_row[0] if channel_row else None,
-                    "display_name": channel_row[1] if channel_row else None
-                },
-                "match_quality": {
-                    "time_difference_seconds": time_diff,
-                    "title_similarity": similarity,
-                    "would_be_removed": created1 < created2 if created1 and created2 else False
+                    "match_quality": {
+                        "time_difference_seconds": time_diff,
+                        "title_similarity": similarity,
+                        "would_be_removed": (
+                            created1 < created2 if created1 and created2 else False
+                        ),
+                    },
                 }
-            })
+            )
 
         # Get estimated removal count
         if duplicate_list:
             # Count how many would be removed (keep newest, remove older)
             estimated_removals = sum(
-                1 for dup in duplicate_list
-                if dup["match_quality"]["would_be_removed"]
+                1 for dup in duplicate_list if dup["match_quality"]["would_be_removed"]
             )
         else:
             estimated_removals = 0
 
-        return jsonify({
-            "preview": True,
-            "message": "Fuzzy duplicate programs preview",
-            "time_tolerance_minutes": time_tolerance,
-            "examples": duplicate_list,
-            "estimated_removal_count": estimated_removals,
-            "total_examples_found": len(duplicate_list)
-        })
+        return jsonify(
+            {
+                "preview": True,
+                "message": "Fuzzy duplicate programs preview",
+                "time_tolerance_minutes": time_tolerance,
+                "examples": duplicate_list,
+                "estimated_removal_count": estimated_removals,
+                "total_examples_found": len(duplicate_list),
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error previewing duplicates: {e}")
