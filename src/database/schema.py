@@ -21,7 +21,7 @@ class SchemaManager:
         version INTEGER PRIMARY KEY,
         applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    
+
     -- Providers table
     CREATE TABLE IF NOT EXISTS providers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,7 +31,7 @@ class SchemaManager:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    
+
     -- Logical channels (user-facing)
     CREATE TABLE IF NOT EXISTS channels (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +41,7 @@ class SchemaManager:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(name)
     );
-    
+
     -- Channel aliases for flexible API access
     CREATE TABLE IF NOT EXISTS channel_aliases (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,7 +51,7 @@ class SchemaManager:
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
     );
-    
+
     -- Map provider channel IDs to logical channels
     CREATE TABLE IF NOT EXISTS channel_mappings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +63,7 @@ class SchemaManager:
         FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
         UNIQUE(provider_id, provider_channel_id)
     );
-    
+
     -- EPG program data
     CREATE TABLE IF NOT EXISTS programs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,7 +84,7 @@ class SchemaManager:
         FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
         FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
     );
-    
+
     -- Import tracking
     CREATE TABLE IF NOT EXISTS import_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,29 +101,29 @@ class SchemaManager:
 
     INDEXES_SQL = """
     -- Composite index for efficient time-range queries
-    CREATE INDEX IF NOT EXISTS idx_programs_channel_time 
+    CREATE INDEX IF NOT EXISTS idx_programs_channel_time
         ON programs(channel_id, start_time, end_time);
-    
-    CREATE INDEX IF NOT EXISTS idx_programs_provider_time 
+
+    CREATE INDEX IF NOT EXISTS idx_programs_provider_time
         ON programs(provider_id, start_time);
-    
-    CREATE INDEX IF NOT EXISTS idx_import_log_provider 
+
+    CREATE INDEX IF NOT EXISTS idx_import_log_provider
         ON import_log(provider_id, completed_at);
-    
+
     CREATE INDEX IF NOT EXISTS idx_channel_mappings_lookup
         ON channel_mappings(provider_id, provider_channel_id);
-    
+
     CREATE INDEX IF NOT EXISTS idx_channel_aliases_lookup
         ON channel_aliases(alias);
-        
+
     -- Prevent duplicate programs
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_programs_unique 
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_programs_unique
         ON programs(channel_id, start_time, end_time);
-        
-    CREATE INDEX IF NOT EXISTS idx_programs_fuzzy_match 
+
+    CREATE INDEX IF NOT EXISTS idx_programs_fuzzy_match
     ON programs(channel_id, provider_id, title, start_time);
-        
-    CREATE INDEX IF NOT EXISTS idx_programs_time_range 
+
+    CREATE INDEX IF NOT EXISTS idx_programs_time_range
     ON programs(channel_id, start_time);
     """
 
