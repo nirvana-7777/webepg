@@ -61,7 +61,8 @@ class CleanupService:
             logger.error(f"Error during cleanup: {e}")
             raise
 
-    def _cleanup_old_import_logs(self, keep_count: int = 100) -> int:
+    @staticmethod
+    def _cleanup_old_import_logs(keep_count: int = 100) -> int:
         """
         Delete old import log entries, keeping the most recent ones.
 
@@ -97,7 +98,84 @@ class CleanupService:
             logger.error(f"Error cleaning up import logs: {e}")
             raise
 
-    def get_database_stats(self) -> dict:
+    @staticmethod
+    def deduplicate_programs() -> dict:
+        """
+        Find and remove exact duplicate programs.
+
+        Returns:
+            Dictionary with deduplication statistics
+        """
+        db = get_db()
+
+        stats = {}
+
+        try:
+            # Find duplicates (same channel, start, end, and title)
+            sql = """
+                  SELECT channel_id, \
+                         start_time, \
+                         end_time, \
+                         title, \
+                         COUNT(*)        as duplicate_count, \
+                         MIN(created_at) as oldest, \
+                         MAX(created_at) as newest
+                  FROM programs
+                  GROUP BY channel_id, start_time, end_time, title
+                  HAVING COUNT(*) > 1 \
+                  """
+
+            duplicates = db.fetchall(sql)
+
+            if not duplicates:
+                logger.info("No exact duplicates found")
+                return {"duplicates_found": 0, "duplicates_removed": 0}
+
+            stats["duplicate_groups"] = len(duplicates)
+            total_duplicates = sum(
+                row[4] - 1 for row in duplicates
+            )  # Count extra copies
+
+            # Keep the newest version of each duplicate
+            delete_sql = """
+                         DELETE \
+                         FROM programs
+                         WHERE id IN (SELECT p.id \
+                                      FROM programs p \
+                                               JOIN (SELECT channel_id, \
+                                                            start_time, \
+                                                            end_time, \
+                                                            title, \
+                                                            MAX(created_at) as latest_created \
+                                                     FROM programs \
+                                                     GROUP BY channel_id, start_time, end_time, title \
+                                                     HAVING COUNT(*) > 1) dup ON p.channel_id = dup.channel_id \
+                                          AND p.start_time = dup.start_time \
+                                          AND p.end_time = dup.end_time \
+                                          AND p.title = dup.title \
+                                          AND p.created_at != dup.latest_created
+                             ) \
+                         """
+
+            with db.get_cursor() as cursor:
+                cursor.execute(delete_sql)
+                removed = cursor.rowcount
+
+            stats["duplicates_removed"] = removed
+
+            logger.info(
+                f"Deduplication removed {removed} exact duplicates from "
+                f"{len(duplicates)} duplicate groups"
+            )
+
+            return stats
+
+        except Exception as e:
+            logger.error(f"Error during deduplication: {e}")
+            raise
+
+    @staticmethod
+    def get_database_stats() -> dict:
         """
         Get statistics about the database contents.
 

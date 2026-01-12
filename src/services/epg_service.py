@@ -269,8 +269,9 @@ class EPGService:
             logger.error(f"Error listing all aliases: {e}")
             raise
 
-    def list_all_aliases_paginated(self, page=1, per_page=100,
-                                   alias_type=None, channel_id=None):
+    def list_all_aliases_paginated(
+        self, page=1, per_page=100, alias_type=None, channel_id=None
+    ):
         """List all aliases with pagination and filtering."""
         db = get_db()
         offset = (page - 1) * per_page
@@ -290,15 +291,19 @@ class EPGService:
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
         # Get total count
-        count_row = db.fetchone(f"""
+        count_row = db.fetchone(
+            f"""
             SELECT COUNT(*)
             FROM channel_aliases ca
             WHERE {where_clause}
-        """, tuple(params))
+        """,
+            tuple(params),
+        )
         total = count_row[0] if count_row else 0
 
         # Get paginated results - MAKE SURE TO INCLUDE ca.created_at
-        rows = db.fetchall(f"""
+        rows = db.fetchall(
+            f"""
             SELECT ca.id, ca.channel_id, ca.alias, ca.alias_type, ca.created_at,
                    c.name as channel_name, c.display_name as channel_display_name
             FROM channel_aliases ca
@@ -306,7 +311,9 @@ class EPGService:
             WHERE {where_clause}
             ORDER BY c.display_name, ca.alias
             LIMIT ? OFFSET ?
-        """, tuple(params + [per_page, offset]))
+        """,
+            tuple(params + [per_page, offset]),
+        )
 
         aliases = []
         for row in rows:
@@ -365,7 +372,7 @@ class EPGService:
                 stats["most_aliases_channel"] = {
                     "channel_id": top_row[0],
                     "channel_name": top_row[1],
-                    "alias_count": top_row[2]
+                    "alias_count": top_row[2],
                 }
 
             # Count channels without aliases

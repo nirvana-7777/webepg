@@ -119,6 +119,12 @@ class SchemaManager:
     -- Prevent duplicate programs
     CREATE UNIQUE INDEX IF NOT EXISTS idx_programs_unique 
         ON programs(channel_id, start_time, end_time);
+        
+    CREATE INDEX IF NOT EXISTS idx_programs_fuzzy_match 
+    ON programs(channel_id, provider_id, title, start_time);
+        
+    CREATE INDEX IF NOT EXISTS idx_programs_time_range 
+    ON programs(channel_id, start_time);
     """
 
     @classmethod

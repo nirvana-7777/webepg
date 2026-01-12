@@ -252,6 +252,7 @@ def import_status():
         logger.error(f"Error getting import status: {e}")
         return jsonify({"error": str(e)}), 500
 
+
 @api_bp.route("/aliases", methods=["GET"])
 def list_all_aliases():
     """List all aliases across all channels."""
@@ -259,10 +260,9 @@ def list_all_aliases():
         aliases = epg_service.list_all_aliases()
 
         # Basic response
-        return jsonify({
-            "count": len(aliases),
-            "aliases": [alias.to_dict() for alias in aliases]
-        })
+        return jsonify(
+            {"count": len(aliases), "aliases": [alias.to_dict() for alias in aliases]}
+        )
     except Exception as e:
         logger.error(f"Error listing all aliases: {e}")
         return jsonify({"error": str(e)}), 500
@@ -289,16 +289,14 @@ def get_alias_mapping():
                 "channel_name": channel.name if channel else None,
                 "channel_display_name": channel.display_name if channel else None,
                 "alias_type": alias.alias_type,
-                "alias_id": alias.id
+                "alias_id": alias.id,
             }
 
-        return jsonify({
-            "count": len(mapping),
-            "mapping": mapping
-        })
+        return jsonify({"count": len(mapping), "mapping": mapping})
     except Exception as e:
         logger.error(f"Error getting alias mapping: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 @api_bp.route("/channels/<channel_identifier>/aliases", methods=["GET"])
 def list_channel_aliases(channel_identifier):
@@ -420,6 +418,136 @@ def test_provider_connection(provider_id):
 
     except Exception as e:
         logger.error(f"Error testing provider {provider_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/admin/duplicates", methods=["DELETE"])
+def remove_duplicates():
+    """
+    Remove duplicate programs from the database.
+
+    This operation finds programs with the same channel, start time, end time, and title,
+    and removes all but the newest version of each duplicate.
+    """
+    try:
+        from ..services.cleanup_service import CleanupService
+
+        cleanup_service = CleanupService()
+        stats = cleanup_service.deduplicate_programs()
+
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "message": "Duplicate programs removed successfully",
+                    "stats": stats,
+                }
+            ),
+            200,
+        )
+
+    except Exception as e:
+        logger.error(f"Error removing duplicates: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/admin/duplicates/preview", methods=["GET"])
+def preview_duplicates():
+    """
+    Preview duplicate programs without removing them.
+
+    Returns statistics and examples of duplicates that would be removed.
+    """
+    try:
+        from ..database.connection import get_db
+        from ..services.cleanup_service import CleanupService
+
+        cleanup_service = CleanupService()
+        db = get_db()
+
+        # Get duplicate statistics without deleting
+        sql = """
+              SELECT channel_id, \
+                     start_time, \
+                     end_time, \
+                     title, \
+                     COUNT(*)         as duplicate_count, \
+                     GROUP_CONCAT(id) as program_ids, \
+                     MIN(created_at)  as oldest, \
+                     MAX(created_at)  as newest
+              FROM programs
+              GROUP BY channel_id, start_time, end_time, title
+              HAVING COUNT(*) > 1
+              ORDER BY duplicate_count DESC LIMIT 20 \
+              """
+
+        duplicates = db.fetchall(sql)
+
+        # Get channel names for better readability
+        duplicate_list = []
+        for row in duplicates:
+            channel_id, start_time, end_time, title, count, ids, oldest, newest = row
+
+            # Get channel info
+            channel_sql = "SELECT name, display_name FROM channels WHERE id = ?"
+            channel_row = db.fetchone(channel_sql, (channel_id,))
+
+            duplicate_list.append(
+                {
+                    "channel": {
+                        "id": channel_id,
+                        "name": channel_row[0] if channel_row else None,
+                        "display_name": channel_row[1] if channel_row else None,
+                    },
+                    "program": {
+                        "title": title,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                    },
+                    "stats": {
+                        "duplicate_count": count,
+                        "program_ids": (
+                            [int(id) for id in ids.split(",")] if ids else []
+                        ),
+                        "oldest_version": oldest,
+                        "newest_version": newest,
+                    },
+                }
+            )
+
+        # Get overall stats
+        stats_sql = """
+                    SELECT COUNT(DISTINCT channel_id || '|' || start_time || '|' || end_time || '|' || \
+                                          title)    as duplicate_groups, \
+                           SUM(duplicate_count - 1) as total_extra_copies
+                    FROM (SELECT channel_id,
+                                 start_time,
+                                 end_time,
+                                 title,
+                                 COUNT(*) as duplicate_count \
+                          FROM programs \
+                          GROUP BY channel_id, start_time, end_time, title \
+                          HAVING COUNT(*) > 1) \
+                    """
+
+        stats_row = db.fetchone(stats_sql)
+        total_stats = {
+            "duplicate_groups": stats_row[0] if stats_row else 0,
+            "total_extra_copies": stats_row[1] if stats_row else 0,
+        }
+
+        return jsonify(
+            {
+                "preview": True,
+                "message": "Duplicate programs preview",
+                "total": total_stats,
+                "examples": duplicate_list,
+                "estimated_removal_count": total_stats.get("total_extra_copies", 0),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error previewing duplicates: {e}")
         return jsonify({"error": str(e)}), 500
 
 

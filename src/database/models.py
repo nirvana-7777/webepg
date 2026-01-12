@@ -8,12 +8,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-
 # REMOVE THIS DUPLICATE - Keep only the one with methods below
 # @dataclass
 # class ChannelAlias:
 #     """Channel alias for flexible API access."""
-# 
+#
 #     id: Optional[int] = None
 #     channel_id: int = 0
 #     alias: str = ""
@@ -108,10 +107,10 @@ class ChannelAlias:
         }
 
         # Add any additional attributes that might have been set
-        if hasattr(self, 'channel_name'):
+        if hasattr(self, "channel_name"):
             result["channel_name"] = self.channel_name
 
-        if hasattr(self, 'channel_display_name'):
+        if hasattr(self, "channel_display_name"):
             result["channel_display_name"] = self.channel_display_name
 
         return result
@@ -178,6 +177,7 @@ class Program:
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
+
 @dataclass
 class Provider:
     """EPG data provider."""
@@ -211,6 +211,7 @@ class Provider:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
 
 @dataclass
 class ImportLog:
@@ -253,4 +254,3 @@ class ImportLog:
             "programs_skipped": self.programs_skipped,
             "error_message": self.error_message,
         }
-

@@ -3,7 +3,6 @@ Provider service for managing EPG data providers.
 """
 
 import logging
-from datetime import datetime
 from typing import List, Optional
 
 from ..database.connection import get_db
