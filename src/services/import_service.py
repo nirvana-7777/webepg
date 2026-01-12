@@ -115,7 +115,7 @@ class ImportService:
                      INSERT INTO programs (channel_id, provider_id, start_time, end_time, \
                                            title, subtitle, description, category, episode_num, \
                                            rating, actors, directors, icon_url) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(channel_id, start_time, end_time, title) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(channel_id, start_time, end_time, title)
         DO \
                      UPDATE SET
                          subtitle = COALESCE (excluded.subtitle, programs.subtitle), \

@@ -98,185 +98,140 @@ class CleanupService:
             logger.error(f"Error cleaning up import logs: {e}")
             raise
 
-    def deduplicate_programs(
-        self, time_tolerance_minutes: int = 5, title_similarity_threshold: float = 0.8
-    ) -> dict:
+    def deduplicate_programs(self, time_tolerance_minutes: int = 5) -> dict:
         """
         Find and remove fuzzy duplicate programs.
 
         Args:
             time_tolerance_minutes: Consider programs within this time window as potential duplicates
-            title_similarity_threshold: Minimum similarity ratio for titles (0.0 to 1.0)
 
         Returns:
             Dictionary with deduplication statistics
         """
         db = get_db()
 
-        stats = {
-            "duplicate_groups": 0,
-            "duplicates_removed": 0,
-            "fuzzy_matches_considered": True,
-        }
+        stats = {"duplicate_groups": 0, "duplicates_removed": 0}
 
         try:
-            # First, let's find potential duplicates using fuzzy matching
-            # This query finds programs that are likely the same show
-            find_potential_duplicates_sql = """
-                                            WITH potential_duplicates AS (SELECT p1.id                                                              as id1, \
-                                                                                 p2.id                                                              as id2, \
-                                                                                 p1.channel_id, \
-                                                                                 p1.title                                                           as title1, \
-                                                                                 p2.title                                                           as title2, \
-                                                                                 p1.start_time, \
-                                                                                 p1.end_time, \
-                                                                                 p2.start_time                                                      as start_time2, \
-                                                                                 p2.end_time                                                        as end_time2, \
-                                                                                 p1.created_at                                                      as created1, \
-                                                                                 p2.created_at                                                      as created2, \
-                                                                                 ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) as time_diff_seconds, \
-                                                                                 -- Simple title similarity (check if one title contains the other) \
-                                                                                 CASE \
-                                                                                     WHEN p1.title LIKE \
-                                                                                          '%' || p2.title || '%' OR \
-                                                                                          p2.title LIKE \
-                                                                                          '%' || p1.title || '%' \
-                                                                                         THEN 1.0 \
-                                                                                     WHEN p1.title LIKE p2.title || '%' OR p2.title LIKE p1.title || '%' \
-                                                                                         THEN 0.9 \
-                                                                                     ELSE 0.0 \
-                                                                                     END                                                            as title_similarity \
-                                                                          FROM programs p1 \
-                                                                                   JOIN programs p2 \
-                                                                                        ON p1.channel_id = p2.channel_id \
-                                                                                            AND p1.provider_id = \
-                                                                                                p2.provider_id \
-                                                                                            AND p1.id < \
-                                                                                                p2.id -- Avoid comparing same program twice \
-                                                                                            AND \
-                                                                                           ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) < \
-                                                                                           ? -- Within time tolerance \
-                                                                          WHERE p1.title IS NOT NULL \
-                                                                            AND p2.title IS NOT NULL)
-                                            SELECT id1, \
-                                                   id2, \
-                                                   channel_id, \
-                                                   title1, \
-                                                   title2, \
-                                                   start_time, \
-                                                   start_time2, \
-                                                   time_diff_seconds, \
-                                                   title_similarity, \
-                                                   created1, \
-                                                   created2
-                                            FROM potential_duplicates
-                                            WHERE title_similarity >= ?
-                                            ORDER BY channel_id, start_time, time_diff_seconds \
-                                            """
+            # SIMPLER APPROACH: Find duplicates and delete them one by one
+
+            # Step 1: Find all potential duplicate pairs
+            find_duplicates_sql = """
+                                  SELECT p1.id                                                              as older_id, \
+                                         p2.id                                                              as newer_id, \
+                                         p1.channel_id, \
+                                         p1.title, \
+                                         p1.start_time                                                      as time1, \
+                                         p2.start_time                                                      as time2, \
+                                         ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) as time_diff, \
+                                         p1.created_at                                                      as created1, \
+                                         p2.created_at                                                      as created2
+                                  FROM programs p1
+                                           JOIN programs p2 ON p1.channel_id = p2.channel_id
+                                      AND p1.provider_id = p2.provider_id
+                                      AND p1.id < p2.id -- Ensure we don't compare the same pair twice
+                                      AND ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) < ?
+                                  WHERE (p1.title LIKE '%' || p2.title || '%' OR p2.title LIKE '%' || p1.title || '%')
+                                    AND p1.title IS NOT NULL
+                                    AND p2.title IS NOT NULL
+                                    AND p1.created_at < p2.created_at -- p1 is older than p2
+                                  ORDER BY p1.channel_id, p1.start_time, time_diff \
+                                  """
 
             time_tolerance_seconds = time_tolerance_minutes * 60
 
-            potential_dups = db.fetchall(
-                find_potential_duplicates_sql,
-                (time_tolerance_seconds, title_similarity_threshold),
+            duplicate_pairs = db.fetchall(
+                find_duplicates_sql, (time_tolerance_seconds,)
             )
 
-            if not potential_dups:
+            if not duplicate_pairs:
                 logger.info("No fuzzy duplicates found")
                 return stats
 
-            # Group duplicates by channel and approximate time
-            duplicate_groups = {}
-            for row in potential_dups:
+            # Step 2: Collect IDs to delete (always delete the OLDER one)
+            ids_to_delete = set()
+            processed_pairs = 0
+
+            for row in duplicate_pairs:
                 (
-                    id1,
-                    id2,
+                    older_id,
+                    newer_id,
                     channel_id,
-                    title1,
-                    title2,
-                    start1,
-                    start2,
+                    title,
+                    time1,
+                    time2,
                     time_diff,
-                    similarity,
                     created1,
                     created2,
                 ) = row
 
-                # Create a group key based on channel and time window
-                time_key = f"{channel_id}_{start1[:13]}"  # Channel + hour precision
+                # Add the older ID to deletion list
+                ids_to_delete.add(older_id)
+                processed_pairs += 1
 
-                if time_key not in duplicate_groups:
-                    duplicate_groups[time_key] = {
-                        "channel_id": channel_id,
-                        "program_ids": set(),
-                        "titles": set(),
-                        "created_times": {},
-                    }
-
-                duplicate_groups[time_key]["program_ids"].add(id1)
-                duplicate_groups[time_key]["program_ids"].add(id2)
-                duplicate_groups[time_key]["titles"].add(title1)
-                duplicate_groups[time_key]["titles"].add(title2)
-                duplicate_groups[time_key]["created_times"][id1] = created1
-                duplicate_groups[time_key]["created_times"][id2] = created2
-
-            stats["duplicate_groups"] = len(duplicate_groups)
-            total_to_remove = 0
-
-            # For each duplicate group, keep only the newest program
-            for group_key, group_data in duplicate_groups.items():
-                program_ids = list(group_data["program_ids"])
-
-                if len(program_ids) <= 1:
-                    continue
-
-                # Find the newest program (most recent created_at)
-                newest_id = None
-                newest_time = None
-
-                for prog_id in program_ids:
-                    created_time = group_data["created_times"].get(prog_id)
-                    if created_time and (
-                        newest_time is None or created_time > newest_time
-                    ):
-                        newest_time = created_time
-                        newest_id = prog_id
-
-                if newest_id is None:
-                    # No timestamps, keep first one
-                    newest_id = program_ids[0]
-
-                # Remove all except the newest
-                ids_to_remove = [pid for pid in program_ids if pid != newest_id]
-
-                if ids_to_remove:
-                    # Delete the older duplicates
-                    placeholders = ",".join(["?"] * len(ids_to_remove))
-                    delete_sql = f"DELETE FROM programs WHERE id IN ({placeholders})"
-
-                    with db.get_cursor() as cursor:
-                        cursor.execute(delete_sql, ids_to_remove)
-                        removed = cursor.rowcount
-
-                    total_to_remove += removed
-
-                    logger.debug(
-                        f"Removed {removed} duplicates from channel {group_data['channel_id']}. "
-                        f"Kept program {newest_id} (newest). Titles: {', '.join(group_data['titles'])}"
-                    )
-
-            stats["duplicates_removed"] = total_to_remove
-
-            if total_to_remove > 0:
-                logger.info(
-                    f"Fuzzy deduplication removed {total_to_remove} duplicates from "
-                    f"{len(duplicate_groups)} duplicate groups"
+                logger.debug(
+                    f"Marking duplicate for deletion: ID {older_id} (created: {created1}) "
+                    f"-> Keeping ID {newer_id} (created: {created2}) | "
+                    f"Title: {title} | Time diff: {time_diff}s"
                 )
+
+            stats["duplicate_groups"] = processed_pairs
+
+            if not ids_to_delete:
+                return stats
+
+            # Step 3: Delete the marked programs
+            delete_ids = list(ids_to_delete)
+
+            # Delete in batches to avoid SQL parameter limits
+            batch_size = 100
+            total_deleted = 0
+
+            for i in range(0, len(delete_ids), batch_size):
+                batch = delete_ids[i : i + batch_size]
+                placeholders = ",".join(["?"] * len(batch))
+
+                delete_sql = f"""
+                DELETE FROM programs
+                WHERE id IN ({placeholders})
+                """
+
+                with db.get_cursor() as cursor:
+                    cursor.execute(delete_sql, batch)
+                    deleted_in_batch = cursor.rowcount
+                    total_deleted += deleted_in_batch
+
+            stats["duplicates_removed"] = total_deleted
+
+            if total_deleted > 0:
+                logger.info(
+                    f"Fuzzy deduplication removed {total_deleted} duplicate programs "
+                    f"from {processed_pairs} duplicate pairs"
+                )
+
+            # Step 4: Also clean up any remaining exact duplicates (same channel, start, end, title)
+            # This catches any duplicates that the fuzzy logic might have missed
+            exact_duplicates_sql = """
+                                   DELETE \
+                                   FROM programs
+                                   WHERE id NOT IN (SELECT MIN(id) \
+                                                    FROM programs \
+                                                    GROUP BY channel_id, start_time, end_time, title) \
+                                   """
+
+            with db.get_cursor() as cursor:
+                cursor.execute(exact_duplicates_sql)
+                exact_deleted = cursor.rowcount
+
+            if exact_deleted > 0:
+                stats["exact_duplicates_removed"] = exact_deleted
+                stats["duplicates_removed"] += exact_deleted
+                logger.info(f"Removed {exact_deleted} exact duplicates")
 
             return stats
 
         except Exception as e:
-            logger.error(f"Error during fuzzy deduplication: {e}")
+            logger.error(f"Error during fuzzy deduplication: {e}", exc_info=True)
             raise
 
     @staticmethod
