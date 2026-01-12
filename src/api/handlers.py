@@ -454,97 +454,136 @@ def remove_duplicates():
 @api_bp.route("/admin/duplicates/preview", methods=["GET"])
 def preview_duplicates():
     """
-    Preview duplicate programs without removing them.
-
-    Returns statistics and examples of duplicates that would be removed.
+    Preview fuzzy duplicate programs without removing them.
     """
     try:
-        from ..database.connection import get_db
         from ..services.cleanup_service import CleanupService
+        from ..database.connection import get_db
 
         cleanup_service = CleanupService()
         db = get_db()
 
-        # Get duplicate statistics without deleting
-        sql = """
-              SELECT channel_id, \
-                     start_time, \
-                     end_time, \
-                     title, \
-                     COUNT(*)         as duplicate_count, \
-                     GROUP_CONCAT(id) as program_ids, \
-                     MIN(created_at)  as oldest, \
-                     MAX(created_at)  as newest
-              FROM programs
-              GROUP BY channel_id, start_time, end_time, title
-              HAVING COUNT(*) > 1
-              ORDER BY duplicate_count DESC LIMIT 20 \
-              """
+        # Get time tolerance from query parameter (default 5 minutes)
+        time_tolerance = request.args.get("time_tolerance", default=5, type=int)
 
-        duplicates = db.fetchall(sql)
+        # Find potential duplicates using fuzzy matching
+        find_potential_duplicates_sql = """
+                                        WITH potential_duplicates AS (SELECT p1.id                                                              as id1, \
+                                                                             p2.id                                                              as id2, \
+                                                                             p1.channel_id, \
+                                                                             p1.title                                                           as title1, \
+                                                                             p2.title                                                           as title2, \
+                                                                             p1.start_time, \
+                                                                             p1.end_time, \
+                                                                             p2.start_time                                                      as start_time2, \
+                                                                             p2.end_time                                                        as end_time2, \
+                                                                             p1.created_at                                                      as created1, \
+                                                                             p2.created_at                                                      as created2, \
+                                                                             ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) as time_diff_seconds, \
+                                                                             CASE \
+                                                                                 WHEN p1.title LIKE \
+                                                                                      '%' || p2.title || '%' OR \
+                                                                                      p2.title LIKE \
+                                                                                      '%' || p1.title || '%' THEN 1.0 \
+                                                                                 WHEN p1.title LIKE p2.title || '%' OR p2.title LIKE p1.title || '%' \
+                                                                                     THEN 0.9 \
+                                                                                 ELSE 0.0 \
+                                                                                 END                                                            as title_similarity \
+                                                                      FROM programs p1 \
+                                                                               JOIN programs p2 \
+                                                                                    ON p1.channel_id = p2.channel_id \
+                                                                                        AND \
+                                                                                       p1.provider_id = p2.provider_id \
+                                                                                        AND p1.id < p2.id \
+                                                                                        AND \
+                                                                                       ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) < \
+                                                                                       ? \
+                                                                      WHERE p1.title IS NOT NULL \
+                                                                        AND p2.title IS NOT NULL)
+                                        SELECT id1, \
+                                               id2, \
+                                               channel_id, \
+                                               title1, \
+                                               title2, \
+                                               start_time, \
+                                               start_time2, \
+                                               time_diff_seconds, \
+                                               title_similarity, \
+                                               created1, \
+                                               created2
+                                        FROM potential_duplicates
+                                        WHERE title_similarity >= 0.7 -- Lower threshold for preview
+                                        ORDER BY channel_id, start_time, time_diff_seconds LIMIT 50 \
+                                        """
 
-        # Get channel names for better readability
+        time_tolerance_seconds = time_tolerance * 60
+
+        potential_dups = db.fetchall(
+            find_potential_duplicates_sql,
+            (time_tolerance_seconds,)
+        )
+
         duplicate_list = []
-        for row in duplicates:
-            channel_id, start_time, end_time, title, count, ids, oldest, newest = row
+        seen_pairs = set()
+
+        for row in potential_dups:
+            id1, id2, channel_id, title1, title2, start1, start2, time_diff, similarity, created1, created2 = row
+
+            # Avoid duplicates in the list
+            pair_key = f"{min(id1, id2)}_{max(id1, id2)}"
+            if pair_key in seen_pairs:
+                continue
+            seen_pairs.add(pair_key)
 
             # Get channel info
             channel_sql = "SELECT name, display_name FROM channels WHERE id = ?"
             channel_row = db.fetchone(channel_sql, (channel_id,))
 
-            duplicate_list.append(
-                {
-                    "channel": {
-                        "id": channel_id,
-                        "name": channel_row[0] if channel_row else None,
-                        "display_name": channel_row[1] if channel_row else None,
+            duplicate_list.append({
+                "programs": [
+                    {
+                        "id": id1,
+                        "title": title1,
+                        "start_time": start1,
+                        "created_at": created1
                     },
-                    "program": {
-                        "title": title,
-                        "start_time": start_time,
-                        "end_time": end_time,
-                    },
-                    "stats": {
-                        "duplicate_count": count,
-                        "program_ids": (
-                            [int(id) for id in ids.split(",")] if ids else []
-                        ),
-                        "oldest_version": oldest,
-                        "newest_version": newest,
-                    },
+                    {
+                        "id": id2,
+                        "title": title2,
+                        "start_time": start2,
+                        "created_at": created2
+                    }
+                ],
+                "channel": {
+                    "id": channel_id,
+                    "name": channel_row[0] if channel_row else None,
+                    "display_name": channel_row[1] if channel_row else None
+                },
+                "match_quality": {
+                    "time_difference_seconds": time_diff,
+                    "title_similarity": similarity,
+                    "would_be_removed": created1 < created2 if created1 and created2 else False
                 }
+            })
+
+        # Get estimated removal count
+        if duplicate_list:
+            # Count how many would be removed (keep newest, remove older)
+            estimated_removals = sum(
+                1 for dup in duplicate_list
+                if dup["match_quality"]["would_be_removed"]
             )
+        else:
+            estimated_removals = 0
 
-        # Get overall stats
-        stats_sql = """
-                    SELECT COUNT(DISTINCT channel_id || '|' || start_time || '|' || end_time || '|' || \
-                                          title)    as duplicate_groups, \
-                           SUM(duplicate_count - 1) as total_extra_copies
-                    FROM (SELECT channel_id,
-                                 start_time,
-                                 end_time,
-                                 title,
-                                 COUNT(*) as duplicate_count \
-                          FROM programs \
-                          GROUP BY channel_id, start_time, end_time, title \
-                          HAVING COUNT(*) > 1) \
-                    """
-
-        stats_row = db.fetchone(stats_sql)
-        total_stats = {
-            "duplicate_groups": stats_row[0] if stats_row else 0,
-            "total_extra_copies": stats_row[1] if stats_row else 0,
-        }
-
-        return jsonify(
-            {
-                "preview": True,
-                "message": "Duplicate programs preview",
-                "total": total_stats,
-                "examples": duplicate_list,
-                "estimated_removal_count": total_stats.get("total_extra_copies", 0),
-            }
-        )
+        return jsonify({
+            "preview": True,
+            "message": "Fuzzy duplicate programs preview",
+            "time_tolerance_minutes": time_tolerance,
+            "examples": duplicate_list,
+            "estimated_removal_count": estimated_removals,
+            "total_examples_found": len(duplicate_list)
+        })
 
     except Exception as e:
         logger.error(f"Error previewing duplicates: {e}")
