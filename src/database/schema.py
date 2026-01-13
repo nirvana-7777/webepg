@@ -194,7 +194,7 @@ class SchemaManager:
             cursor = conn.cursor()
 
             # Add new columns
-            cursor.execute("""
+            cursor.executescript("""
                            ALTER TABLE programs
                                ADD COLUMN presenters TEXT;
                            ALTER TABLE programs
