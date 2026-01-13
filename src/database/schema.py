@@ -195,17 +195,23 @@ class SchemaManager:
 
             # Add new columns
             cursor.executescript("""
-                           ALTER TABLE programs
-                               ADD COLUMN presenters TEXT;
-                           ALTER TABLE programs
-                               ADD COLUMN writers TEXT;
-                           ALTER TABLE programs
-                               ADD COLUMN producers TEXT;
-                           ALTER TABLE programs
-                               ADD COLUMN production_year TEXT;
-                           ALTER TABLE programs
-                               ADD COLUMN country TEXT;
-                           """)
+                                 ALTER TABLE programs
+                                     ADD COLUMN presenters TEXT;
+                                 ALTER TABLE programs
+                                     ADD COLUMN writers TEXT;
+                                 ALTER TABLE programs
+                                     ADD COLUMN producers TEXT;
+                                 ALTER TABLE programs
+                                     ADD COLUMN production_year TEXT;
+                                 ALTER TABLE programs
+                                     ADD COLUMN country TEXT;
+                                 """)
+
+            # Update schema version
+            cursor.execute(
+                "INSERT INTO schema_version (version) VALUES (?)",
+                (to_version,)
+            )
 
             conn.commit()
             logger.info("Migration to version 2 completed")
