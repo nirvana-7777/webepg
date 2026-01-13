@@ -193,25 +193,28 @@ class SchemaManager:
             # Run migration from v1 to v2
             cursor = conn.cursor()
 
-            # Add new columns
-            cursor.executescript("""
-                                 ALTER TABLE programs
-                                     ADD COLUMN presenters TEXT;
-                                 ALTER TABLE programs
-                                     ADD COLUMN writers TEXT;
-                                 ALTER TABLE programs
-                                     ADD COLUMN producers TEXT;
-                                 ALTER TABLE programs
-                                     ADD COLUMN production_year TEXT;
-                                 ALTER TABLE programs
-                                     ADD COLUMN country TEXT;
-                                 """)
+            # Add new columns - check if they exist first to make migration idempotent
+            new_columns = [
+                ("presenters", "TEXT"),
+                ("writers", "TEXT"),
+                ("producers", "TEXT"),
+                ("production_year", "TEXT"),
+                ("country", "TEXT")
+            ]
+
+            for column_name, column_type in new_columns:
+                # Check if column already exists
+                cursor.execute("PRAGMA table_info(programs)")
+                existing_columns = [row[1] for row in cursor.fetchall()]
+
+                if column_name not in existing_columns:
+                    cursor.execute(f"ALTER TABLE programs ADD COLUMN {column_name} {column_type}")
+                    logger.info(f"Added column {column_name} to programs table")
+                else:
+                    logger.info(f"Column {column_name} already exists, skipping")
 
             # Update schema version
-            cursor.execute(
-                "INSERT INTO schema_version (version) VALUES (?)",
-                (to_version,)
-            )
+            cursor.execute("INSERT INTO schema_version (version) VALUES (?)", (to_version,))
 
             conn.commit()
             logger.info("Migration to version 2 completed")
