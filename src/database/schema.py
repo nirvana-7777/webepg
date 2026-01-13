@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SchemaManager:
     """Manages database schema creation and migrations."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     SCHEMA_SQL = """
     -- Schema version tracking
@@ -77,9 +77,14 @@ class SchemaManager:
         category TEXT,
         episode_num TEXT,
         rating TEXT,
-        actors TEXT,
-        directors TEXT,
+        actors TEXT,  -- Will store JSON array
+        directors TEXT,  -- Will store JSON array
+        presenters TEXT,  -- NEW: JSON array of presenters
+        writers TEXT,  -- NEW: JSON array of writers
+        producers TEXT,  -- NEW: JSON array of producers
         icon_url TEXT,
+        production_year TEXT,  -- NEW: Production year (date from XML)
+        country TEXT,  -- NEW: Country of origin
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
         FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
@@ -169,10 +174,41 @@ class SchemaManager:
                     "INSERT INTO schema_version (version) VALUES (?)",
                     (cls.SCHEMA_VERSION,),
                 )
+            elif current_version < cls.SCHEMA_VERSION:
+                # Run migrations
+                cls._migrate_database(conn, current_version, cls.SCHEMA_VERSION)
 
             conn.commit()
         finally:
             conn.close()
+
+    @classmethod
+    def _migrate_database(
+        cls, conn: sqlite3.Connection, from_version: int, to_version: int
+    ):
+        """Run database migrations."""
+        logger.info(f"Migrating database from version {from_version} to {to_version}")
+
+        if from_version == 1 and to_version == 2:
+            # Run migration from v1 to v2
+            cursor = conn.cursor()
+
+            # Add new columns
+            cursor.execute("""
+                           ALTER TABLE programs
+                               ADD COLUMN presenters TEXT;
+                           ALTER TABLE programs
+                               ADD COLUMN writers TEXT;
+                           ALTER TABLE programs
+                               ADD COLUMN producers TEXT;
+                           ALTER TABLE programs
+                               ADD COLUMN production_year TEXT;
+                           ALTER TABLE programs
+                               ADD COLUMN country TEXT;
+                           """)
+
+            conn.commit()
+            logger.info("Migration to version 2 completed")
 
     @classmethod
     def _get_schema_version(cls, conn: sqlite3.Connection) -> Optional[int]:

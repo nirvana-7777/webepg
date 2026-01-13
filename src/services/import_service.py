@@ -112,21 +112,28 @@ class ImportService:
 
         # UPSERT SQL - updates if duplicate, inserts if new
         upsert_sql = """
-                     INSERT INTO programs (channel_id, provider_id, start_time, end_time, \
-                                           title, subtitle, description, category, episode_num, \
-                                           rating, actors, directors, icon_url) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(channel_id, start_time, end_time, title)
-        DO \
-                     UPDATE SET
-                         subtitle = COALESCE (excluded.subtitle, programs.subtitle), \
-                         description = COALESCE (excluded.description, programs.description), \
-                         category = COALESCE (excluded.category, programs.category), \
-                         episode_num = COALESCE (excluded.episode_num, programs.episode_num), \
-                         rating = COALESCE (excluded.rating, programs.rating), \
-                         actors = COALESCE (excluded.actors, programs.actors), \
-                         directors = COALESCE (excluded.directors, programs.directors), \
-                         icon_url = COALESCE (excluded.icon_url, programs.icon_url), \
-                         created_at = CURRENT_TIMESTAMP \
+                    INSERT INTO programs (
+                        channel_id, provider_id, start_time, end_time,
+                        title, subtitle, description, category, episode_num,
+                        rating, actors, directors, presenters, writers, producers,
+                        icon_url, production_year, country
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(channel_id, start_time, end_time, title)
+                    DO UPDATE SET
+                        subtitle = COALESCE(excluded.subtitle, programs.subtitle),
+                        description = COALESCE(excluded.description, programs.description),
+                        category = COALESCE(excluded.category, programs.category),
+                        episode_num = COALESCE(excluded.episode_num, programs.episode_num),
+                        rating = COALESCE(excluded.rating, programs.rating),
+                        actors = COALESCE(excluded.actors, programs.actors),
+                        directors = COALESCE(excluded.directors, programs.directors),
+                        presenters = COALESCE(excluded.presenters, programs.presenters),
+                        writers = COALESCE(excluded.writers, programs.writers),
+                        producers = COALESCE(excluded.producers, programs.producers),
+                        icon_url = COALESCE(excluded.icon_url, programs.icon_url),
+                        production_year = COALESCE(excluded.production_year, programs.production_year),
+                        country = COALESCE(excluded.country, programs.country),
+                        created_at = CURRENT_TIMESTAMP
                      """
 
         batch = []
@@ -144,6 +151,9 @@ class ImportService:
                     skipped += 1
                     continue
 
+                # Convert lists to JSON strings
+                import json
+
                 batch.append(
                     (
                         channel_id,
@@ -156,9 +166,14 @@ class ImportService:
                         program_data.get("category"),
                         program_data.get("episode_num"),
                         program_data.get("rating"),
-                        program_data.get("actors"),
-                        program_data.get("directors"),
+                        json.dumps(program_data.get("actors", [])),  # JSON string
+                        json.dumps(program_data.get("directors", [])),  # JSON string
+                        json.dumps(program_data.get("presenters", [])),  # JSON string
+                        json.dumps(program_data.get("writers", [])),  # JSON string
+                        json.dumps(program_data.get("producers", [])),  # JSON string
                         program_data.get("icon_url"),
+                        program_data.get("production_year"),  # New field
+                        program_data.get("country"),  # New field
                     )
                 )
 

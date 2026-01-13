@@ -22,7 +22,7 @@ class XMLTVParser:
             dt_str: Datetime string from XMLTV
 
         Returns:
-            datetime object or None if parsing fails
+            datetime object in UTC or None if parsing fails
         """
         if not dt_str:
             return None
@@ -33,7 +33,7 @@ class XMLTVParser:
             parts = dt_str.split()
             dt_part = parts[0]
 
-            # Parse base datetime
+            # Parse base datetime as UTC by default
             dt = datetime.strptime(dt_part[:14], "%Y%m%d%H%M%S")
 
             # Handle timezone offset if present
@@ -49,6 +49,12 @@ class XMLTVParser:
 
                 offset = timedelta(hours=sign * hours, minutes=sign * minutes)
                 dt = dt - offset
+
+            # Ensure we return aware datetime in UTC
+            from datetime import timezone
+
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
 
             return dt
         except Exception as e:
@@ -78,7 +84,7 @@ class XMLTVParser:
         return child.text if child is not None else None
 
     @staticmethod
-    def _get_credits(element: ET.Element) -> Dict[str, str]:
+    def _get_credits(element: ET.Element) -> Dict[str, list]:
         """
         Extract credits (actors, directors, etc.) from programme element.
 
@@ -86,27 +92,58 @@ class XMLTVParser:
             element: Programme XML element
 
         Returns:
-            Dictionary with 'actors' and 'directors' as comma-separated strings
+            Dictionary with 'actors' and 'directors' as lists
         """
-        credits = {"actors": None, "directors": None}
+        credits = {
+            "actors": [],
+            "directors": [],
+            "presenters": [],
+            "writers": [],
+            "producers": [],
+        }
 
         credits_elem = element.find("credits")
         if credits_elem is not None:
-            # Get actors
+            # Get all actors
             actors = [
                 actor.text for actor in credits_elem.findall("actor") if actor.text
             ]
             if actors:
-                credits["actors"] = ", ".join(actors)
+                credits["actors"] = actors
 
-            # Get directors
+            # Get all directors
             directors = [
                 director.text
                 for director in credits_elem.findall("director")
                 if director.text
             ]
             if directors:
-                credits["directors"] = ", ".join(directors)
+                credits["directors"] = directors
+
+            # Get presenters
+            presenters = [
+                presenter.text
+                for presenter in credits_elem.findall("presenter")
+                if presenter.text
+            ]
+            if presenters:
+                credits["presenters"] = presenters
+
+            # Get writers
+            writers = [
+                writer.text for writer in credits_elem.findall("writer") if writer.text
+            ]
+            if writers:
+                credits["writers"] = writers
+
+            # Get producers
+            producers = [
+                producer.text
+                for producer in credits_elem.findall("producer")
+                if producer.text
+            ]
+            if producers:
+                credits["producers"] = producers
 
         return credits
 
@@ -159,19 +196,7 @@ class XMLTVParser:
             file_path: Path to XMLTV file
 
         Yields:
-            Dictionary with programme data:
-                - channel_id: Channel ID (from XMLTV)
-                - start_time: Program start datetime
-                - end_time: Program end datetime
-                - title: Program title
-                - subtitle: Episode title (optional)
-                - description: Program description (optional)
-                - category: Category (optional)
-                - episode_num: Episode number (optional)
-                - rating: Content rating (optional)
-                - actors: Comma-separated actor names (optional)
-                - directors: Comma-separated director names (optional)
-                - icon_url: Program icon URL (optional)
+            Dictionary with programme data including date, country, and full credits
         """
         try:
             for event, elem in ET.iterparse(file_path, events=("end",)):
@@ -196,7 +221,7 @@ class XMLTVParser:
                         elem.clear()
                         continue
 
-                    # Extract credits
+                    # Extract credits as lists
                     credits = self._get_credits(elem)
 
                     # Get category
@@ -220,6 +245,14 @@ class XMLTVParser:
                     icon_elem = elem.find("icon")
                     icon_url = icon_elem.get("src") if icon_elem is not None else None
 
+                    # Get date (production year)
+                    date_elem = elem.find("date")
+                    production_year = date_elem.text if date_elem is not None else None
+
+                    # Get country
+                    country_elem = elem.find("country")
+                    country = country_elem.text if country_elem is not None else None
+
                     yield {
                         "channel_id": channel_id,
                         "start_time": start_time,
@@ -230,9 +263,14 @@ class XMLTVParser:
                         "category": category,
                         "episode_num": episode_num,
                         "rating": rating,
-                        "actors": credits["actors"],
-                        "directors": credits["directors"],
+                        "actors": credits["actors"],  # Now a list
+                        "directors": credits["directors"],  # Now a list
+                        "presenters": credits.get("presenters", []),  # New field
+                        "writers": credits.get("writers", []),  # New field
+                        "producers": credits.get("producers", []),  # New field
                         "icon_url": icon_url,
+                        "production_year": production_year,  # New field
+                        "country": country,  # New field
                     }
 
                     # Clear element to free memory

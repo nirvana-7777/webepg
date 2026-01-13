@@ -8,16 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-# REMOVE THIS DUPLICATE - Keep only the one with methods below
-# @dataclass
-# class ChannelAlias:
-#     """Channel alias for flexible API access."""
-#
-#     id: Optional[int] = None
-#     channel_id: int = 0
-#     alias: str = ""
-#     alias_type: Optional[str] = None
-#     created_at: Optional[datetime] = None
+from ..utils.time_utils import to_utc_isoformat
 
 
 @dataclass
@@ -48,7 +39,7 @@ class Channel:
             "name": self.name,
             "display_name": self.display_name,
             "icon_url": self.icon_url,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": to_utc_isoformat(self.created_at),  # Use helper
         }
 
 
@@ -103,7 +94,7 @@ class ChannelAlias:
             "channel_id": self.channel_id,
             "alias": self.alias,
             "alias_type": self.alias_type,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": to_utc_isoformat(self.created_at),  # Use helper
         }
 
         # Add any additional attributes that might have been set
@@ -131,14 +122,20 @@ class Program:
     category: Optional[str] = None
     episode_num: Optional[str] = None
     rating: Optional[str] = None
-    actors: Optional[str] = None
-    directors: Optional[str] = None
+    actors: Optional[list] = None  # Changed from str to list
+    directors: Optional[list] = None  # Changed from str to list
+    presenters: Optional[list] = None  # New field
+    writers: Optional[list] = None  # New field
+    producers: Optional[list] = None  # New field
     icon_url: Optional[str] = None
+    production_year: Optional[str] = None  # New field
+    country: Optional[str] = None  # New field
     created_at: Optional[datetime] = None
 
     @classmethod
     def from_db_row(cls, row: tuple) -> "Program":
         """Create Program from database row."""
+        # Note: Database schema needs to be updated first!
         return cls(
             id=row[0],
             channel_id=row[1],
@@ -151,11 +148,34 @@ class Program:
             category=row[8],
             episode_num=row[9],
             rating=row[10],
-            actors=row[11],
-            directors=row[12],
-            icon_url=row[13],
+            actors=cls._parse_json_field(row[11]),  # Parse JSON string
+            directors=cls._parse_json_field(row[12]),  # Parse JSON string
+            presenters=cls._parse_json_field(row[15]),  # New field position
+            writers=cls._parse_json_field(row[16]),  # New field position
+            producers=cls._parse_json_field(row[17]),  # New field position
+            icon_url=row[13],  # Adjusted position
+            production_year=row[18],  # New field position
+            country=row[19],  # New field position
             created_at=datetime.fromisoformat(row[14]) if row[14] else None,
         )
+
+    @staticmethod
+    def _parse_json_field(value: str) -> Optional[list]:
+        """Parse JSON string field, return list if valid, None otherwise."""
+        if not value:
+            return None
+        try:
+            import json
+
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+            return [parsed] if parsed else None
+        except (json.JSONDecodeError, TypeError):
+            # Fallback: if it's a comma-separated string, split it
+            if isinstance(value, str):
+                return [item.strip() for item in value.split(",") if item.strip()]
+            return None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -163,18 +183,23 @@ class Program:
             "id": self.id,
             "channel_id": self.channel_id,
             "provider_id": self.provider_id,
-            "start_time": self.start_time.isoformat() if self.start_time else None,
-            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "start_time": to_utc_isoformat(self.start_time),
+            "end_time": to_utc_isoformat(self.end_time),
             "title": self.title,
             "subtitle": self.subtitle,
             "description": self.description,
             "category": self.category,
             "episode_num": self.episode_num,
             "rating": self.rating,
-            "actors": self.actors,
-            "directors": self.directors,
+            "actors": self.actors or [],  # Ensure list
+            "directors": self.directors or [],  # Ensure list
+            "presenters": self.presenters or [],  # New field
+            "writers": self.writers or [],  # New field
+            "producers": self.producers or [],  # New field
             "icon_url": self.icon_url,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "production_year": self.production_year,  # New field
+            "country": self.country,  # New field
+            "created_at": to_utc_isoformat(self.created_at),
         }
 
 
@@ -208,8 +233,8 @@ class Provider:
             "name": self.name,
             "xmltv_url": self.xmltv_url,
             "enabled": self.enabled,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": to_utc_isoformat(self.created_at),  # Use helper
+            "updated_at": to_utc_isoformat(self.updated_at),  # Use helper
         }
 
 
@@ -245,10 +270,8 @@ class ImportLog:
         return {
             "id": self.id,
             "provider_id": self.provider_id,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": (
-                self.completed_at.isoformat() if self.completed_at else None
-            ),
+            "started_at": to_utc_isoformat(self.started_at),  # Use helper
+            "completed_at": to_utc_isoformat(self.completed_at),  # Use helper
             "status": self.status,
             "programs_imported": self.programs_imported,
             "programs_skipped": self.programs_skipped,

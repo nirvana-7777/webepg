@@ -3,7 +3,6 @@ HTTP request handlers for EPG API.
 """
 
 import logging
-from datetime import datetime
 
 from dateutil.parser import isoparse
 from flask import Blueprint, jsonify, request
@@ -36,7 +35,9 @@ def init_handlers(
 @api_bp.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint."""
-    return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat()})
+    from ..utils.time_utils import now_utc, to_utc_isoformat
+
+    return jsonify({"status": "healthy", "timestamp": to_utc_isoformat(now_utc())})
 
 
 @api_bp.route("/channels", methods=["GET"])
@@ -556,14 +557,14 @@ def preview_duplicates():
                         {
                             "id": id1,
                             "title": title1,
-                            "start_time": start1,
-                            "created_at": created1,
+                            "start_time": start1 + "Z",  # Add Z suffix
+                            "created_at": created1 + "Z" if created1 else None,
                         },
                         {
                             "id": id2,
                             "title": title2,
-                            "start_time": start2,
-                            "created_at": created2,
+                            "start_time": start2 + "Z",  # Add Z suffix
+                            "created_at": created2 + "Z" if created2 else None,
                         },
                     ],
                     "channel": {
