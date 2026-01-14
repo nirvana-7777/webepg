@@ -238,7 +238,7 @@ def import_status():
             LIMIT 10
             """)
 
-        logs = [ImportLog.from_db_row(tuple(row)).to_dict() for row in rows]
+        logs = [ImportLog.from_db_row(row).to_dict() for row in rows]
 
         next_run = scheduler.get_next_run_time()
 

@@ -328,7 +328,7 @@ class ImportService:
             (log_id,),
         )
 
-        return ImportLog.from_db_row(tuple(row))
+        return ImportLog.from_db_row(row)
 
     def import_all_providers(self) -> List[ImportLog]:
         """

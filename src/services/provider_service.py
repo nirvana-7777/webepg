@@ -149,7 +149,7 @@ class ProviderService:
         try:
             row = db.fetchone(sql, (provider_id,))
             if row:
-                return Provider.from_db_row(tuple(row))
+                return Provider.from_db_row(row)
             return None
         except Exception as e:
             logger.error(f"Error fetching provider {provider_id}: {e}")
@@ -179,7 +179,7 @@ class ProviderService:
 
         try:
             rows = db.fetchall(sql)
-            providers = [Provider.from_db_row(tuple(row)) for row in rows]
+            providers = [Provider.from_db_row(row) for row in rows]
 
             logger.debug(
                 f"Listed {len(providers)} providers (enabled_only={enabled_only})"
@@ -238,7 +238,7 @@ class ProviderService:
 
         row = db.fetchone(sql, (mapping_id,))
         if row:
-            return ChannelMapping.from_db_row(tuple(row))
+            return ChannelMapping.from_db_row(row)
         return None
 
     def get_channel_for_provider_channel(
