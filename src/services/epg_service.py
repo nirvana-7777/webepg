@@ -35,7 +35,8 @@ class EPGService:
             SELECT
                 id, channel_id, provider_id, start_time, end_time,
                 title, subtitle, description, category, episode_num,
-                rating, actors, directors, icon_url, created_at
+                rating, actors, directors, presenters, writers,
+                producers, icon_url, production_year, country, created_at
             FROM programs
             WHERE channel_id = ?
               AND start_time < ?
@@ -49,7 +50,7 @@ class EPGService:
 
         try:
             rows = db.fetchall(sql, (channel_id, end_str, start_str))
-            programs = [Program.from_db_row(tuple(row)) for row in rows]
+            programs = [Program.from_db_row(row) for row in rows]
 
             logger.debug(
                 f"Found {len(programs)} programs for channel {channel_id} "
@@ -82,7 +83,7 @@ class EPGService:
         try:
             row = db.fetchone(sql, (channel_id,))
             if row:
-                return Channel.from_db_row(tuple(row))
+                return Channel.from_db_row(row)
             return None
         except Exception as e:
             logger.error(f"Error fetching channel {channel_id}: {e}")
@@ -109,7 +110,7 @@ class EPGService:
         try:
             row = db.fetchone(sql, (name,))
             if row:
-                return Channel.from_db_row(tuple(row))
+                return Channel.from_db_row(row)
             return None
         except Exception as e:
             logger.error(f"Error fetching channel by name '{name}': {e}")
@@ -132,7 +133,7 @@ class EPGService:
 
         try:
             rows = db.fetchall(sql)
-            channels = [Channel.from_db_row(tuple(row)) for row in rows]
+            channels = [Channel.from_db_row(row) for row in rows]
 
             logger.debug(f"Listed {len(channels)} channels")
 
@@ -227,38 +228,32 @@ class EPGService:
 
     def list_all_aliases(self):
         """List all aliases across all channels."""
-        from ..database.models import ChannelAlias
-
         db = get_db()
 
-        # ADD ca.created_at to the SELECT statement
         sql = """
-              SELECT ca.id, \
-                     ca.channel_id, \
-                     ca.alias, \
-                     ca.alias_type, \
-                     ca.created_at,
-                     c.name         as channel_name, \
-                     c.display_name as channel_display_name
-              FROM channel_aliases ca
-                       JOIN channels c ON ca.channel_id = c.id
-              ORDER BY c.display_name, ca.alias \
-              """
+            SELECT ca.id, ca.channel_id, ca.alias, ca.alias_type, ca.created_at,
+                   c.name as channel_name, c.display_name as channel_display_name
+            FROM channel_aliases ca
+            JOIN channels c ON ca.channel_id = c.id
+            ORDER BY c.display_name, ca.alias
+        """
 
         try:
             rows = db.fetchall(sql)
             aliases = []
 
             for row in rows:
-                # Now row has correct order:
-                # 0: ca.id, 1: ca.channel_id, 2: ca.alias, 3: ca.alias_type,
-                # 4: ca.created_at, 5: c.name, 6: c.display_name
-
-                alias = ChannelAlias.from_db_row(tuple(row[:5]))  # Pass first 5 columns
+                alias = ChannelAlias.from_db_row(row)
 
                 # Add channel info as attributes
-                alias.channel_name = row[5] if len(row) > 5 and row[5] else None
-                alias.channel_display_name = row[6] if len(row) > 6 and row[6] else None
+                alias.channel_name = (
+                    row["channel_name"] if "channel_name" in row.keys() else None
+                )
+                alias.channel_display_name = (
+                    row["channel_display_name"]
+                    if "channel_display_name" in row.keys()
+                    else None
+                )
 
                 aliases.append(alias)
 
@@ -301,7 +296,7 @@ class EPGService:
         )
         total = count_row[0] if count_row else 0
 
-        # Get paginated results - MAKE SURE TO INCLUDE ca.created_at
+        # Get paginated results
         rows = db.fetchall(
             f"""
             SELECT ca.id, ca.channel_id, ca.alias, ca.alias_type, ca.created_at,
@@ -317,31 +312,37 @@ class EPGService:
 
         aliases = []
         for row in rows:
-            alias = ChannelAlias.from_db_row(tuple(row[:5]))
-            alias.channel_name = row[5] if len(row) > 5 and row[5] else None
-            alias.channel_display_name = row[6] if len(row) > 6 and row[6] else None
+            alias = ChannelAlias.from_db_row(row)
+            alias.channel_name = (
+                row["channel_name"] if "channel_name" in row.keys() else None
+            )
+            alias.channel_display_name = (
+                row["channel_display_name"]
+                if "channel_display_name" in row.keys()
+                else None
+            )
             aliases.append(alias)
 
         return aliases, total
 
     def get_alias_statistics(self):
         """Get statistics about aliases."""
-        db = get_db()  # FIX: Get database connection
+        db = get_db()
 
         stats = {}
 
         try:
             # Get basic counts
             rows = db.fetchall("""
-                               SELECT COUNT(DISTINCT ca.id)         as total_aliases,
-                                      COUNT(DISTINCT ca.channel_id) as channels_with_aliases,
-                                      COUNT(DISTINCT c.id)          as total_channels,
-                                      AVG(alias_count)              as avg_aliases_per_channel
-                               FROM channels c
-                                        LEFT JOIN (SELECT channel_id, COUNT(*) as alias_count
-                                                   FROM channel_aliases
-                                                   GROUP BY channel_id) ca ON c.id = ca.channel_id
-                               """)
+                SELECT COUNT(DISTINCT ca.id) as total_aliases,
+                       COUNT(DISTINCT ca.channel_id) as channels_with_aliases,
+                       COUNT(DISTINCT c.id) as total_channels,
+                       AVG(alias_count) as avg_aliases_per_channel
+                FROM channels c
+                LEFT JOIN (SELECT channel_id, COUNT(*) as alias_count
+                           FROM channel_aliases
+                           GROUP BY channel_id) ca ON c.id = ca.channel_id
+            """)
 
             if rows and rows[0]:
                 stats["total_aliases"] = rows[0][0] or 0
@@ -351,22 +352,22 @@ class EPGService:
 
             # Get alias type distribution
             type_rows = db.fetchall("""
-                                    SELECT alias_type, COUNT(*) as count
-                                    FROM channel_aliases
-                                    GROUP BY alias_type
-                                    ORDER BY count DESC
-                                    """)
+                SELECT alias_type, COUNT(*) as count
+                FROM channel_aliases
+                GROUP BY alias_type
+                ORDER BY count DESC
+            """)
 
             stats["type_distribution"] = {row[0]: row[1] for row in type_rows if row[0]}
 
             # Get channel with most aliases
             top_row = db.fetchone("""
-                                  SELECT c.id, c.name, COUNT(ca.id) as alias_count
-                                  FROM channels c
-                                           JOIN channel_aliases ca ON c.id = ca.channel_id
-                                  GROUP BY c.id, c.name
-                                  ORDER BY alias_count DESC LIMIT 1
-                                  """)
+                SELECT c.id, c.name, COUNT(ca.id) as alias_count
+                FROM channels c
+                JOIN channel_aliases ca ON c.id = ca.channel_id
+                GROUP BY c.id, c.name
+                ORDER BY alias_count DESC LIMIT 1
+            """)
 
             if top_row:
                 stats["most_aliases_channel"] = {
@@ -377,11 +378,11 @@ class EPGService:
 
             # Count channels without aliases
             no_alias_row = db.fetchone("""
-                                       SELECT COUNT(*)
-                                       FROM channels c
-                                                LEFT JOIN channel_aliases ca ON c.id = ca.channel_id
-                                       WHERE ca.id IS NULL
-                                       """)
+                SELECT COUNT(*)
+                FROM channels c
+                LEFT JOIN channel_aliases ca ON c.id = ca.channel_id
+                WHERE ca.id IS NULL
+            """)
 
             stats["channels_without_aliases"] = no_alias_row[0] if no_alias_row else 0
 
@@ -413,7 +414,7 @@ class EPGService:
         try:
             row = db.fetchone(sql, (alias,))
             if row:
-                return Channel.from_db_row(tuple(row))
+                return Channel.from_db_row(row)
             return None
         except Exception as e:
             logger.error(f"Error fetching channel by alias '{alias}': {e}")
@@ -458,21 +459,18 @@ class EPGService:
 
     def get_channel_alias(self, alias_id: int) -> Optional["ChannelAlias"]:
         """Get channel alias by ID."""
-        from ..database.models import ChannelAlias
-
         db = get_db()
 
-        # FIXED: Remove backslash
         sql = """
-              SELECT id, channel_id, alias, alias_type, created_at
-              FROM channel_aliases
-              WHERE id = ? \
-              """
+            SELECT id, channel_id, alias, alias_type, created_at
+            FROM channel_aliases
+            WHERE id = ?
+        """
 
         try:
             row = db.fetchone(sql, (alias_id,))
             if row:
-                return ChannelAlias.from_db_row(tuple(row))
+                return ChannelAlias.from_db_row(row)
             return None
         except Exception as e:
             logger.error(f"Error fetching alias {alias_id}: {e}")
@@ -488,8 +486,6 @@ class EPGService:
         Returns:
             List of ChannelAlias objects
         """
-        from ..database.models import ChannelAlias
-
         db = get_db()
 
         sql = """
@@ -501,7 +497,7 @@ class EPGService:
 
         try:
             rows = db.fetchall(sql, (channel_id,))
-            aliases = [ChannelAlias.from_db_row(tuple(row)) for row in rows]
+            aliases = [ChannelAlias.from_db_row(row) for row in rows]
 
             logger.debug(f"Found {len(aliases)} aliases for channel {channel_id}")
 

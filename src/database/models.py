@@ -22,14 +22,16 @@ class Channel:
     created_at: Optional[datetime] = None
 
     @classmethod
-    def from_db_row(cls, row: tuple) -> "Channel":
+    def from_db_row(cls, row) -> "Channel":
         """Create Channel from database row."""
         return cls(
-            id=row[0],
-            name=row[1],
-            display_name=row[2],
-            icon_url=row[3],
-            created_at=datetime.fromisoformat(row[4]) if row[4] else None,
+            id=row["id"],
+            name=row["name"],
+            display_name=row["display_name"],
+            icon_url=row["icon_url"],
+            created_at=(
+                datetime.fromisoformat(row["created_at"]) if row["created_at"] else None
+            ),
         )
 
     def to_dict(self) -> dict:
@@ -54,14 +56,16 @@ class ChannelMapping:
     created_at: Optional[datetime] = None
 
     @classmethod
-    def from_db_row(cls, row: tuple) -> "ChannelMapping":
+    def from_db_row(cls, row) -> "ChannelMapping":  # Remove : tuple
         """Create ChannelMapping from database row."""
         return cls(
-            id=row[0],
-            provider_id=row[1],
-            provider_channel_id=row[2],
-            channel_id=row[3],
-            created_at=datetime.fromisoformat(row[4]) if row[4] else None,
+            id=row["id"],  # Change from row[0]
+            provider_id=row["provider_id"],  # Change from row[1]
+            provider_channel_id=row["provider_channel_id"],  # Change from row[2]
+            channel_id=row["channel_id"],  # Change from row[3]
+            created_at=(
+                datetime.fromisoformat(row["created_at"]) if row["created_at"] else None
+            ),  # Change from row[4]
         )
 
 
@@ -77,14 +81,16 @@ class ChannelAlias:
     created_at: Optional[datetime] = None
 
     @classmethod
-    def from_db_row(cls, row: tuple) -> "ChannelAlias":
+    def from_db_row(cls, row) -> "ChannelAlias":  # Remove : tuple
         """Create ChannelAlias from database row."""
         return cls(
-            id=row[0],
-            channel_id=row[1],
-            alias=row[2],
-            alias_type=row[3],
-            created_at=datetime.fromisoformat(row[4]) if row[4] else None,
+            id=row["id"],  # Change from row[0]
+            channel_id=row["channel_id"],  # Change from row[1]
+            alias=row["alias"],  # Change from row[2]
+            alias_type=row["alias_type"],  # Change from row[3]
+            created_at=(
+                datetime.fromisoformat(row["created_at"]) if row["created_at"] else None
+            ),  # Change from row[4]
         )
 
     def to_dict(self) -> dict:
@@ -133,30 +139,39 @@ class Program:
     created_at: Optional[datetime] = None
 
     @classmethod
-    def from_db_row(cls, row: tuple) -> "Program":
-        """Create Program from database row."""
-        # Note: Database schema needs to be updated first!
+    def from_db_row(cls, row) -> "Program":
+        """Create Program from database row.
+
+        Args:
+            row: Database row (sqlite3.Row object or dict-like)
+        """
         return cls(
-            id=row[0],
-            channel_id=row[1],
-            provider_id=row[2],
-            start_time=datetime.fromisoformat(row[3]) if row[3] else None,
-            end_time=datetime.fromisoformat(row[4]) if row[4] else None,
-            title=row[5],
-            subtitle=row[6],
-            description=row[7],
-            category=row[8],
-            episode_num=row[9],
-            rating=row[10],
-            actors=cls._parse_json_field(row[11]),  # Parse JSON string
-            directors=cls._parse_json_field(row[12]),  # Parse JSON string
-            presenters=cls._parse_json_field(row[15]),  # New field position
-            writers=cls._parse_json_field(row[16]),  # New field position
-            producers=cls._parse_json_field(row[17]),  # New field position
-            icon_url=row[13],  # Adjusted position
-            production_year=row[18],  # New field position
-            country=row[19],  # New field position
-            created_at=datetime.fromisoformat(row[14]) if row[14] else None,
+            id=row["id"],
+            channel_id=row["channel_id"],
+            provider_id=row["provider_id"],
+            start_time=(
+                datetime.fromisoformat(row["start_time"]) if row["start_time"] else None
+            ),
+            end_time=(
+                datetime.fromisoformat(row["end_time"]) if row["end_time"] else None
+            ),
+            title=row["title"],
+            subtitle=row["subtitle"],
+            description=row["description"],
+            category=row["category"],
+            episode_num=row["episode_num"],
+            rating=row["rating"],
+            actors=cls._parse_json_field(row["actors"]),
+            directors=cls._parse_json_field(row["directors"]),
+            presenters=cls._parse_json_field(row["presenters"]),
+            writers=cls._parse_json_field(row["writers"]),
+            producers=cls._parse_json_field(row["producers"]),
+            icon_url=row["icon_url"],
+            production_year=row["production_year"],
+            country=row["country"],
+            created_at=(
+                datetime.fromisoformat(row["created_at"]) if row["created_at"] else None
+            ),
         )
 
     @staticmethod
@@ -215,15 +230,19 @@ class Provider:
     updated_at: Optional[datetime] = None
 
     @classmethod
-    def from_db_row(cls, row: tuple) -> "Provider":
+    def from_db_row(cls, row) -> "Provider":  # Remove : tuple
         """Create Provider from database row."""
         return cls(
-            id=row[0],
-            name=row[1],
-            xmltv_url=row[2],
-            enabled=bool(row[3]),
-            created_at=datetime.fromisoformat(row[4]) if row[4] else None,
-            updated_at=datetime.fromisoformat(row[5]) if row[5] else None,
+            id=row["id"],  # Change from row[0]
+            name=row["name"],  # Change from row[1]
+            xmltv_url=row["xmltv_url"],  # Change from row[2]
+            enabled=bool(row["enabled"]),  # Change from row[3]
+            created_at=(
+                datetime.fromisoformat(row["created_at"]) if row["created_at"] else None
+            ),  # Change from row[4]
+            updated_at=(
+                datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None
+            ),  # Change from row[5]
         )
 
     def to_dict(self) -> dict:
@@ -252,17 +271,24 @@ class ImportLog:
     error_message: Optional[str] = None
 
     @classmethod
-    def from_db_row(cls, row: tuple) -> "ImportLog":
+    def from_db_row(cls, row) -> "ImportLog":  # Remove : tuple
         """Create ImportLog from database row."""
         return cls(
-            id=row[0],
-            provider_id=row[1],
-            started_at=datetime.fromisoformat(row[2]) if row[2] else None,
-            completed_at=datetime.fromisoformat(row[3]) if row[3] else None,
-            status=row[4],
-            programs_imported=row[5],
-            programs_skipped=row[6],
-            error_message=row[7],
+            id=row["id"],  # Change from row[0]
+            provider_id=row["provider_id"],  # Change from row[1]
+            started_at=(
+                datetime.fromisoformat(row["started_at"]) if row["started_at"] else None
+            ),  # Change from row[2]
+            completed_at=(
+                datetime.fromisoformat(row["completed_at"])
+                if row["completed_at"]
+                else None
+            ),
+            # Change from row[3]
+            status=row["status"],  # Change from row[4]
+            programs_imported=row["programs_imported"],  # Change from row[5]
+            programs_skipped=row["programs_skipped"],  # Change from row[6]
+            error_message=row["error_message"],  # Change from row[7]
         )
 
     def to_dict(self) -> dict:
