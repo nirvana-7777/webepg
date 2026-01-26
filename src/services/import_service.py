@@ -118,7 +118,7 @@ class ImportService:
                         rating, actors, directors, presenters, writers, producers,
                         icon_url, production_year, country
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(channel_id, start_time, end_time, title)
+                    ON CONFLICT(channel_id, start_time, end_time)
                     DO UPDATE SET
                         subtitle = COALESCE(excluded.subtitle, programs.subtitle),
                         description = COALESCE(excluded.description, programs.description),
