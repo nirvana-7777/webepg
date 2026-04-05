@@ -13,6 +13,8 @@ from .database.connection import close_db, initialize_db
 from .database.schema import SchemaManager
 from .scheduler.jobs import JobScheduler
 
+scheduler = None
+ultimate_import_service = None
 
 def setup_logging(config: dict):
     """
@@ -59,8 +61,10 @@ def setup_logging(config: dict):
 def main():
     """Main application entry point."""
     # Load configuration
+    global scheduler, ultimate_import_service
     config_path = sys.argv[1] if len(sys.argv) > 1 else None
     config = load_config(config_path)
+
 
     # Setup logging
     setup_logging(config.get_section("logging"))
@@ -84,6 +88,13 @@ def main():
         scheduler_config = config.get_section("scheduler")
         scheduler_config["retention_days"] = config.get("retention.days", 7)
         scheduler = JobScheduler(scheduler_config)
+
+        # Store ultimate_import_service for API access
+        if hasattr(scheduler, 'ultimate_import_service'):
+            ultimate_import_service = scheduler.ultimate_import_service
+            # Make available to handlers
+            import src.api.handlers as handlers
+            handlers.ultimate_import_service = ultimate_import_service
 
         # Setup graceful shutdown
         def signal_handler(signum, frame):

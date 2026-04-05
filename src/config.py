@@ -22,7 +22,34 @@ class Config:
         },
         "retention": {"days": 7},
         "scheduler": {"import_time": "03:00", "timezone": "UTC"},
-        "logging": {"level": "INFO", "format": "text"},  # 'text' or 'json'
+        "logging": {"level": "INFO", "format": "text"},
+        # NEW: Ultimate Backend configuration
+        "ultimate_backend": {
+            "enabled": False,
+            "instance": {
+                "name": "main",
+                "base_url": "http://ultimate:7777",
+                "api_key": None,
+            },
+            "import": {
+                "future_days": 7,
+                "past_days": 7,
+                "chunk_hours": 24,
+                "max_requests_per_second": 5,
+                "max_concurrent_channels": 3,
+            },
+            "discovery": {
+                "enabled": True,
+                "schedule": "weekly",
+                "day": 0,  # Sunday
+                "hour": 2,
+            },
+            "retry": {
+                "max_attempts": 3,
+                "base_delay_seconds": 1,
+                "max_delay_seconds": 30,
+            },
+        },
     }
 
     def __init__(self, config_path: str = None):
@@ -96,6 +123,18 @@ class Config:
 
         if "EPG_LOG_FORMAT" in os.environ:
             self.config["logging"]["format"] = os.environ["EPG_LOG_FORMAT"].lower()
+
+        # Ultimate Backend
+        if "ULTIMATE_BACKEND_ENABLED" in os.environ:
+            self.config["ultimate_backend"]["enabled"] = (
+                    os.environ["ULTIMATE_BACKEND_ENABLED"].lower() == "true"
+            )
+
+        if "ULTIMATE_BACKEND_URL" in os.environ:
+            self.config["ultimate_backend"]["instance"]["base_url"] = os.environ["ULTIMATE_BACKEND_URL"]
+
+        if "ULTIMATE_BACKEND_API_KEY" in os.environ:
+            self.config["ultimate_backend"]["instance"]["api_key"] = os.environ["ULTIMATE_BACKEND_API_KEY"]
 
     def get(self, key_path: str, default: Any = None) -> Any:
         """

@@ -17,3 +17,20 @@ scheduler:
 logging:
   level: "INFO"
   format: "text"  # 'text' or 'json'
+
+ultimate_backend:
+  enabled: true  # Set to true to enable
+  instance:
+    name: "main"
+    base_url: "http://your-ultimate-backend:7777"
+    api_key: "your-api-key-if-needed"
+  import:
+    future_days: 7
+    past_days: 7
+    chunk_hours: 24
+    max_requests_per_second: 5
+    max_concurrent_channels: 3
+  discovery:
+    enabled: true
+    day: 6  # Sunday
+    hour: 2
