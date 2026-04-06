@@ -1,3 +1,4 @@
+# src/config.py
 """
 Configuration management for EPG service.
 """
@@ -23,7 +24,6 @@ class Config:
         "retention": {"days": 7},
         "scheduler": {"import_time": "03:00", "timezone": "UTC"},
         "logging": {"level": "INFO", "format": "text"},
-        # NEW: Ultimate Backend configuration
         "ultimate_backend": {
             "enabled": False,
             "instance": {
@@ -42,8 +42,7 @@ class Config:
             },
             "discovery": {
                 "enabled": True,
-                "schedule": "weekly",
-                "day": 0,  # Sunday
+                "day": 6,  # Sunday
                 "hour": 2,
             },
             "retry": {
@@ -72,10 +71,13 @@ class Config:
 
     def _load_yaml(self, path: str):
         """Load configuration from YAML file."""
-        with open(path, "r") as f:
-            yaml_config = yaml.safe_load(f)
-            if yaml_config:
-                self._merge_config(self.config, yaml_config)
+        try:
+            with open(path, "r") as f:
+                yaml_config = yaml.safe_load(f)
+                if yaml_config:
+                    self._merge_config(self.config, yaml_config)
+        except Exception as e:
+            print(f"Warning: Failed to load config from {path}: {e}")
 
     def _merge_config(self, base: Dict, override: Dict):
         """Recursively merge override config into base config."""
@@ -126,60 +128,17 @@ class Config:
         if "EPG_LOG_FORMAT" in os.environ:
             self.config["logging"]["format"] = os.environ["EPG_LOG_FORMAT"].lower()
 
-        # Ultimate Backend - ensure section exists
-        if "ultimate_backend" not in self.config:
-            self.config["ultimate_backend"] = self.DEFAULT_CONFIG[
-                "ultimate_backend"
-            ].copy()
-
-        ub_config = self.config["ultimate_backend"]
-
+        # Ultimate Backend
         if "ULTIMATE_BACKEND_ENABLED" in os.environ:
-            ub_config["enabled"] = (
+            self.config["ultimate_backend"]["enabled"] = (
                 os.environ["ULTIMATE_BACKEND_ENABLED"].lower() == "true"
             )
 
         if "ULTIMATE_BACKEND_URL" in os.environ:
-            if "instance" not in ub_config:
-                ub_config["instance"] = self.DEFAULT_CONFIG["ultimate_backend"][
-                    "instance"
-                ].copy()
-            ub_config["instance"]["base_url"] = os.environ["ULTIMATE_BACKEND_URL"]
+            self.config["ultimate_backend"]["instance"]["base_url"] = os.environ["ULTIMATE_BACKEND_URL"]
 
         if "ULTIMATE_BACKEND_API_KEY" in os.environ:
-            if "instance" not in ub_config:
-                ub_config["instance"] = self.DEFAULT_CONFIG["ultimate_backend"][
-                    "instance"
-                ].copy()
-            ub_config["instance"]["api_key"] = os.environ["ULTIMATE_BACKEND_API_KEY"]
-
-        # Ultimate Backend import settings
-        if "ULTIMATE_BACKEND_FUTURE_DAYS" in os.environ:
-            if "import" not in ub_config:
-                ub_config["import"] = self.DEFAULT_CONFIG["ultimate_backend"][
-                    "import"
-                ].copy()
-            ub_config["import"]["future_days"] = int(
-                os.environ["ULTIMATE_BACKEND_FUTURE_DAYS"]
-            )
-
-        if "ULTIMATE_BACKEND_PAST_DAYS" in os.environ:
-            if "import" not in ub_config:
-                ub_config["import"] = self.DEFAULT_CONFIG["ultimate_backend"][
-                    "import"
-                ].copy()
-            ub_config["import"]["past_days"] = int(
-                os.environ["ULTIMATE_BACKEND_PAST_DAYS"]
-            )
-
-        if "ULTIMATE_BACKEND_CHUNK_HOURS" in os.environ:
-            if "import" not in ub_config:
-                ub_config["import"] = self.DEFAULT_CONFIG["ultimate_backend"][
-                    "import"
-                ].copy()
-            ub_config["import"]["chunk_hours"] = int(
-                os.environ["ULTIMATE_BACKEND_CHUNK_HOURS"]
-            )
+            self.config["ultimate_backend"]["instance"]["api_key"] = os.environ["ULTIMATE_BACKEND_API_KEY"]
 
     def get(self, key_path: str, default: Any = None) -> Any:
         """
@@ -191,9 +150,6 @@ class Config:
 
         Returns:
             Configuration value
-
-        Example:
-            config.get('database.path')  # Returns 'epg.db'
         """
         keys = key_path.split(".")
         value = self.config
