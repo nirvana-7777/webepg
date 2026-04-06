@@ -428,7 +428,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775488806767</updated>
     </task>
-    <option name="localTasksCounter" value="41" />
+    <task id="LOCAL-00041" summary="Read EPG from backend">
+      <option name="closed" value="true" />
+      <created>1775503814766</created>
+      <option name="number" value="00041" />
+      <option name="presentableId" value="LOCAL-00041" />
+      <option name="project" value="LOCAL" />
+      <updated>1775503814766</updated>
+    </task>
+    <option name="localTasksCounter" value="42" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
