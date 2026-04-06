@@ -16,6 +16,7 @@ from .scheduler.jobs import JobScheduler
 scheduler = None
 ultimate_import_service = None
 
+
 def setup_logging(config: dict):
     """
     Configure logging based on configuration.
@@ -65,7 +66,6 @@ def main():
     config_path = sys.argv[1] if len(sys.argv) > 1 else None
     config = load_config(config_path)
 
-
     # Setup logging
     setup_logging(config.get_section("logging"))
     logger = logging.getLogger(__name__)
@@ -90,10 +90,11 @@ def main():
         scheduler = JobScheduler(scheduler_config)
 
         # Store ultimate_import_service for API access
-        if hasattr(scheduler, 'ultimate_import_service'):
+        if hasattr(scheduler, "ultimate_import_service"):
             ultimate_import_service = scheduler.ultimate_import_service
             # Make available to handlers
             import src.api.handlers as handlers
+
             handlers.ultimate_import_service = ultimate_import_service
 
         # Setup graceful shutdown

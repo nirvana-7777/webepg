@@ -4,7 +4,7 @@ Configuration management for EPG service.
 
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -37,6 +37,8 @@ class Config:
                 "chunk_hours": 24,
                 "max_requests_per_second": 5,
                 "max_concurrent_channels": 3,
+                "timeout_seconds": 30,
+                "max_retries": 3,
             },
             "discovery": {
                 "enabled": True,
@@ -52,7 +54,7 @@ class Config:
         },
     }
 
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: Optional[str] = None):
         """
         Initialize configuration.
 
@@ -124,17 +126,60 @@ class Config:
         if "EPG_LOG_FORMAT" in os.environ:
             self.config["logging"]["format"] = os.environ["EPG_LOG_FORMAT"].lower()
 
-        # Ultimate Backend
+        # Ultimate Backend - ensure section exists
+        if "ultimate_backend" not in self.config:
+            self.config["ultimate_backend"] = self.DEFAULT_CONFIG[
+                "ultimate_backend"
+            ].copy()
+
+        ub_config = self.config["ultimate_backend"]
+
         if "ULTIMATE_BACKEND_ENABLED" in os.environ:
-            self.config["ultimate_backend"]["enabled"] = (
-                    os.environ["ULTIMATE_BACKEND_ENABLED"].lower() == "true"
+            ub_config["enabled"] = (
+                os.environ["ULTIMATE_BACKEND_ENABLED"].lower() == "true"
             )
 
         if "ULTIMATE_BACKEND_URL" in os.environ:
-            self.config["ultimate_backend"]["instance"]["base_url"] = os.environ["ULTIMATE_BACKEND_URL"]
+            if "instance" not in ub_config:
+                ub_config["instance"] = self.DEFAULT_CONFIG["ultimate_backend"][
+                    "instance"
+                ].copy()
+            ub_config["instance"]["base_url"] = os.environ["ULTIMATE_BACKEND_URL"]
 
         if "ULTIMATE_BACKEND_API_KEY" in os.environ:
-            self.config["ultimate_backend"]["instance"]["api_key"] = os.environ["ULTIMATE_BACKEND_API_KEY"]
+            if "instance" not in ub_config:
+                ub_config["instance"] = self.DEFAULT_CONFIG["ultimate_backend"][
+                    "instance"
+                ].copy()
+            ub_config["instance"]["api_key"] = os.environ["ULTIMATE_BACKEND_API_KEY"]
+
+        # Ultimate Backend import settings
+        if "ULTIMATE_BACKEND_FUTURE_DAYS" in os.environ:
+            if "import" not in ub_config:
+                ub_config["import"] = self.DEFAULT_CONFIG["ultimate_backend"][
+                    "import"
+                ].copy()
+            ub_config["import"]["future_days"] = int(
+                os.environ["ULTIMATE_BACKEND_FUTURE_DAYS"]
+            )
+
+        if "ULTIMATE_BACKEND_PAST_DAYS" in os.environ:
+            if "import" not in ub_config:
+                ub_config["import"] = self.DEFAULT_CONFIG["ultimate_backend"][
+                    "import"
+                ].copy()
+            ub_config["import"]["past_days"] = int(
+                os.environ["ULTIMATE_BACKEND_PAST_DAYS"]
+            )
+
+        if "ULTIMATE_BACKEND_CHUNK_HOURS" in os.environ:
+            if "import" not in ub_config:
+                ub_config["import"] = self.DEFAULT_CONFIG["ultimate_backend"][
+                    "import"
+                ].copy()
+            ub_config["import"]["chunk_hours"] = int(
+                os.environ["ULTIMATE_BACKEND_CHUNK_HOURS"]
+            )
 
     def get(self, key_path: str, default: Any = None) -> Any:
         """
@@ -171,14 +216,14 @@ class Config:
         Returns:
             Configuration section dictionary
         """
-        return self.config.get(section, {})
+        return self.config.get(section, {}).copy()
 
     def to_dict(self) -> Dict:
         """Get complete configuration as dictionary."""
         return self.config.copy()
 
 
-def load_config(config_path: str = None) -> Config:
+def load_config(config_path: Optional[str] = None) -> Config:
     """
     Load configuration from file and environment.
 

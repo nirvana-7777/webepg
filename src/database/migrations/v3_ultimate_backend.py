@@ -173,14 +173,21 @@ def migrate_v2_to_v3(db_or_path):
         # Create indexes
         # ======================================================================
 
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_programs_ultimate_epg_id ON programs(ultimate_epg_id)")
         cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_channel_import_state_status ON channel_import_state(sync_status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_batches_channel ON import_batches(ultimate_channel_id)")
+            "CREATE INDEX IF NOT EXISTS idx_programs_ultimate_epg_id ON programs(ultimate_epg_id)"
+        )
         cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ultimate_channels_provider ON ultimate_channels(ultimate_provider_id)")
+            "CREATE INDEX IF NOT EXISTS idx_channel_import_state_status ON channel_import_state(sync_status)"
+        )
         cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ultimate_mappings_channel ON ultimate_channel_mappings(channel_id)")
+            "CREATE INDEX IF NOT EXISTS idx_import_batches_channel ON import_batches(ultimate_channel_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ultimate_channels_provider ON ultimate_channels(ultimate_provider_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ultimate_mappings_channel ON ultimate_channel_mappings(channel_id)"
+        )
 
         # ======================================================================
         # Update schema version

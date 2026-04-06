@@ -12,7 +12,9 @@ from apscheduler.triggers.cron import CronTrigger
 
 from ..services.cleanup_service import CleanupService
 from ..services.import_service import ImportService
-from ..services.ultimate_backend_discovery_service import UltimateBackendDiscoveryService
+from ..services.ultimate_backend_discovery_service import (
+    UltimateBackendDiscoveryService,
+)
 from ..services.ultimate_backend_import_service import UltimateBackendImportService
 
 logger = logging.getLogger(__name__)
@@ -56,7 +58,9 @@ class JobScheduler:
             requests_per_second=import_config.get("max_requests_per_second", 5),
         )
 
-        self.ultimate_discovery_service = UltimateBackendDiscoveryService(self.ultimate_client)
+        self.ultimate_discovery_service = UltimateBackendDiscoveryService(
+            self.ultimate_client
+        )
         self._ultimate_import_service = UltimateBackendImportService(
             client=self.ultimate_client,
             future_days=import_config.get("future_days", 7),
@@ -112,7 +116,9 @@ class JobScheduler:
             # Run async discovery
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            stats = loop.run_until_complete(self.ultimate_discovery_service.discover_all())
+            stats = loop.run_until_complete(
+                self.ultimate_discovery_service.discover_all()
+            )
             loop.close()
 
             logger.info(f"Ultimate Backend discovery completed: {stats}")
@@ -130,7 +136,9 @@ class JobScheduler:
             # Run async import
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            stats = loop.run_until_complete(self.ultimate_import_service.incremental_import_all())
+            stats = loop.run_until_complete(
+                self.ultimate_import_service.incremental_import_all()
+            )
             loop.close()
 
             logger.info(f"Ultimate Backend import completed: {stats}")
@@ -164,17 +172,23 @@ class JobScheduler:
 
             # Discovery job (weekly by default)
             if discovery_config.get("enabled", True):
-                discovery_day = discovery_config.get("day", 6)  # 6 = Sunday (Monday=0, Sunday=6)
+                discovery_day = discovery_config.get(
+                    "day", 6
+                )  # 6 = Sunday (Monday=0, Sunday=6)
                 discovery_hour = discovery_config.get("hour", 2)
 
                 self.scheduler.add_job(
                     self._run_ultimate_discovery_job,
-                    trigger=CronTrigger(day_of_week=discovery_day, hour=discovery_hour, minute=0),
+                    trigger=CronTrigger(
+                        day_of_week=discovery_day, hour=discovery_hour, minute=0
+                    ),
                     id="weekly_ultimate_discovery",
                     name="Weekly Ultimate Backend Discovery",
                     replace_existing=True,
                 )
-                logger.info(f"Scheduled weekly Ultimate Backend discovery on day {discovery_day} at {discovery_hour}:00")
+                logger.info(
+                    f"Scheduled weekly Ultimate Backend discovery on day {discovery_day} at {discovery_hour}:00"
+                )
 
             # Incremental import job (daily, 30 minutes after XMLTV import)
             import_minute = minute + 30
@@ -191,7 +205,9 @@ class JobScheduler:
                 name="Daily Ultimate Backend Import",
                 replace_existing=True,
             )
-            logger.info(f"Scheduled daily Ultimate Backend import at {import_hour}:{import_minute:02d}")
+            logger.info(
+                f"Scheduled daily Ultimate Backend import at {import_hour}:{import_minute:02d}"
+            )
 
         # Start scheduler
         self.scheduler.start()
@@ -270,4 +286,8 @@ class JobScheduler:
 
     @property
     def ultimate_import_service(self):
-        return self._ultimate_import_service if hasattr(self, '_ultimate_import_service') else None
+        return (
+            self._ultimate_import_service
+            if hasattr(self, "_ultimate_import_service")
+            else None
+        )

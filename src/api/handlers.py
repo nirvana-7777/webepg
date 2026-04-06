@@ -704,6 +704,7 @@ def get_statistics():
 # Ultimate Backend Management Endpoints
 # ============================================================================
 
+
 @api_bp.route("/ultimate/status", methods=["GET"])
 def get_ultimate_status():
     """Get status of Ultimate Backend integration."""
@@ -713,15 +714,20 @@ def get_ultimate_status():
         db = get_db()
 
         # Get instance info
-        instance = db.fetchone("SELECT id, name, base_url, enabled FROM ultimate_backend_instances WHERE name = 'main'")
+        instance = db.fetchone(
+            "SELECT id, name, base_url, enabled FROM ultimate_backend_instances WHERE name = 'main'"
+        )
 
         # Get provider stats
-        providers = db.fetchall("""
+        providers = db.fetchall(
+            """
             SELECT provider_name, provider_label, has_epg, enabled, 
                    last_discovered_at, last_successful_import, error_count
             FROM ultimate_providers
             WHERE instance_id = ?
-        """, (instance[0] if instance else 0,))
+        """,
+            (instance[0] if instance else 0,),
+        )
 
         # Get channel stats
         channels = db.fetchone("""
@@ -747,46 +753,52 @@ def get_ultimate_status():
             LIMIT 10
         """)
 
-        return jsonify({
-            "instance": {
-                "name": instance[1] if instance else None,
-                "base_url": instance[2] if instance else None,
-                "enabled": bool(instance[3]) if instance else False,
-            } if instance else None,
-            "providers": {
-                "total": len(providers),
-                "with_epg": sum(1 for p in providers if p["has_epg"]),
-                "enabled": sum(1 for p in providers if p["enabled"]),
-                "list": [
+        return jsonify(
+            {
+                "instance": (
                     {
-                        "name": p["provider_name"],
-                        "label": p["provider_label"],
-                        "has_epg": bool(p["has_epg"]),
-                        "last_import": p["last_successful_import"],
-                        "error_count": p["error_count"],
+                        "name": instance[1] if instance else None,
+                        "base_url": instance[2] if instance else None,
+                        "enabled": bool(instance[3]) if instance else False,
                     }
-                    for p in providers
+                    if instance
+                    else None
+                ),
+                "providers": {
+                    "total": len(providers),
+                    "with_epg": sum(1 for p in providers if p["has_epg"]),
+                    "enabled": sum(1 for p in providers if p["enabled"]),
+                    "list": [
+                        {
+                            "name": p["provider_name"],
+                            "label": p["provider_label"],
+                            "has_epg": bool(p["has_epg"]),
+                            "last_import": p["last_successful_import"],
+                            "error_count": p["error_count"],
+                        }
+                        for p in providers
+                    ],
+                },
+                "channels": {
+                    "total": channels[0] if channels else 0,
+                    "synced": channels[1] if channels else 0,
+                    "failed": channels[2] if channels else 0,
+                    "in_progress": channels[3] if channels else 0,
+                },
+                "recent_imports": [
+                    {
+                        "start": r["start"],
+                        "end": r["end"],
+                        "fetched": r["programs_fetched"],
+                        "inserted": r["programs_inserted"],
+                        "updated": r["programs_updated"],
+                        "status": r["status"],
+                        "created_at": r["created_at"],
+                    }
+                    for r in recent_imports
                 ],
-            },
-            "channels": {
-                "total": channels[0] if channels else 0,
-                "synced": channels[1] if channels else 0,
-                "failed": channels[2] if channels else 0,
-                "in_progress": channels[3] if channels else 0,
-            },
-            "recent_imports": [
-                {
-                    "start": r["start"],
-                    "end": r["end"],
-                    "fetched": r["programs_fetched"],
-                    "inserted": r["programs_inserted"],
-                    "updated": r["programs_updated"],
-                    "status": r["status"],
-                    "created_at": r["created_at"],
-                }
-                for r in recent_imports
-            ],
-        })
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting ultimate status: {e}")
@@ -803,14 +815,16 @@ def trigger_ultimate_discovery():
 
     try:
         scheduler.trigger_ultimate_discovery_now()
-        return jsonify({
-            "message": "Ultimate Backend discovery triggered",
-            "next_scheduled": (
-                scheduler.get_next_run_time("weekly_ultimate_discovery").isoformat()
-                if scheduler.get_next_run_time("weekly_ultimate_discovery")
-                else None
-            ),
-        })
+        return jsonify(
+            {
+                "message": "Ultimate Backend discovery triggered",
+                "next_scheduled": (
+                    scheduler.get_next_run_time("weekly_ultimate_discovery").isoformat()
+                    if scheduler.get_next_run_time("weekly_ultimate_discovery")
+                    else None
+                ),
+            }
+        )
     except Exception as e:
         logger.error(f"Error triggering discovery: {e}")
         return jsonify({"error": str(e)}), 500
@@ -826,14 +840,16 @@ def trigger_ultimate_import():
 
     try:
         scheduler.trigger_ultimate_import_now()
-        return jsonify({
-            "message": "Ultimate Backend import triggered",
-            "next_scheduled": (
-                scheduler.get_next_run_time("daily_ultimate_import").isoformat()
-                if scheduler.get_next_run_time("daily_ultimate_import")
-                else None
-            ),
-        })
+        return jsonify(
+            {
+                "message": "Ultimate Backend import triggered",
+                "next_scheduled": (
+                    scheduler.get_next_run_time("daily_ultimate_import").isoformat()
+                    if scheduler.get_next_run_time("daily_ultimate_import")
+                    else None
+                ),
+            }
+        )
     except Exception as e:
         logger.error(f"Error triggering import: {e}")
         return jsonify({"error": str(e)}), 500
@@ -864,22 +880,24 @@ def list_ultimate_providers():
             ORDER BY up.provider_name
         """)
 
-        return jsonify({
-            "providers": [
-                {
-                    "id": p[0],
-                    "name": p[1],
-                    "label": p[2],
-                    "has_epg": bool(p[3]),
-                    "enabled": bool(p[4]),
-                    "last_discovered": p[5],
-                    "last_import": p[6],
-                    "error_count": p[7],
-                    "channel_count": p[8],
-                }
-                for p in providers
-            ]
-        })
+        return jsonify(
+            {
+                "providers": [
+                    {
+                        "id": p[0],
+                        "name": p[1],
+                        "label": p[2],
+                        "has_epg": bool(p[3]),
+                        "enabled": bool(p[4]),
+                        "last_discovered": p[5],
+                        "last_import": p[6],
+                        "error_count": p[7],
+                        "channel_count": p[8],
+                    }
+                    for p in providers
+                ]
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error listing ultimate providers: {e}")
@@ -904,7 +922,8 @@ def list_ultimate_provider_channels(provider_id):
             return jsonify({"error": "Provider not found"}), 404
 
         # Get channels
-        channels = db.fetchall("""
+        channels = db.fetchall(
+            """
             SELECT 
                 uc.id,
                 uc.ultimate_channel_id,
@@ -920,30 +939,34 @@ def list_ultimate_provider_channels(provider_id):
             LEFT JOIN channel_import_state cis ON uc.id = cis.ultimate_channel_id
             WHERE uc.ultimate_provider_id = ?
             ORDER BY uc.channel_number, uc.channel_name
-        """, (provider_id,))
+        """,
+            (provider_id,),
+        )
 
-        return jsonify({
-            "provider": {
-                "id": provider_id,
-                "name": provider[0],
-                "label": provider[1],
-            },
-            "channels": [
-                {
-                    "id": c[0],
-                    "ultimate_id": c[1],
-                    "name": c[2],
-                    "number": c[3],
-                    "logo_url": c[4],
-                    "catchup_hours": c[5],
-                    "enabled": bool(c[6]),
-                    "sync_status": c[7],
-                    "last_sync": c[8],
-                    "program_count": c[9],
-                }
-                for c in channels
-            ],
-        })
+        return jsonify(
+            {
+                "provider": {
+                    "id": provider_id,
+                    "name": provider[0],
+                    "label": provider[1],
+                },
+                "channels": [
+                    {
+                        "id": c[0],
+                        "ultimate_id": c[1],
+                        "name": c[2],
+                        "number": c[3],
+                        "logo_url": c[4],
+                        "catchup_hours": c[5],
+                        "enabled": bool(c[6]),
+                        "sync_status": c[7],
+                        "last_sync": c[8],
+                        "program_count": c[9],
+                    }
+                    for c in channels
+                ],
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error listing ultimate provider channels: {e}")
@@ -956,7 +979,7 @@ def trigger_ultimate_channel_import(channel_id):
     global scheduler
 
     # Get ultimate_import_service from scheduler
-    ultimate_import_service = getattr(scheduler, 'ultimate_import_service', None)
+    ultimate_import_service = getattr(scheduler, "ultimate_import_service", None)
 
     if not scheduler or not ultimate_import_service:
         return jsonify({"error": "Ultimate Backend not initialized"}), 500
@@ -966,7 +989,8 @@ def trigger_ultimate_channel_import(channel_id):
         from ..database.connection import get_db
 
         db = get_db()
-        channel = db.fetchone("""
+        channel = db.fetchone(
+            """
             SELECT 
                 uc.id,
                 uc.ultimate_channel_id,
@@ -977,7 +1001,9 @@ def trigger_ultimate_channel_import(channel_id):
             JOIN ultimate_providers up ON uc.ultimate_provider_id = up.id
             JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
             WHERE uc.id = ?
-        """, (channel_id,))
+        """,
+            (channel_id,),
+        )
 
         if not channel:
             return jsonify({"error": "Channel not found"}), 404
@@ -1002,11 +1028,13 @@ def trigger_ultimate_channel_import(channel_id):
 
         Thread(target=run_import, daemon=True).start()
 
-        return jsonify({
-            "message": f"Import triggered for channel {channel[2]}",
-            "channel_id": channel_id,
-            "channel_name": channel[2],
-        })
+        return jsonify(
+            {
+                "message": f"Import triggered for channel {channel[2]}",
+                "channel_id": channel_id,
+                "channel_name": channel[2],
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error triggering channel import: {e}")

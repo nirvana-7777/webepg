@@ -183,12 +183,15 @@ class SchemaManager:
             conn.close()
 
     @classmethod
-    def _migrate_database(cls, conn: sqlite3.Connection, from_version: int, to_version: int):
+    def _migrate_database(
+        cls, conn: sqlite3.Connection, from_version: int, to_version: int
+    ):
         """Run database migrations."""
         logger.info(f"Migrating database from version {from_version} to {to_version}")
 
         if from_version == 2 and to_version == 3:
             from ..database.migrations.v3_ultimate_backend import migrate_v2_to_v3
+
             migrate_v2_to_v3(conn)
             return
 

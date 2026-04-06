@@ -22,11 +22,11 @@ class EPGClient(ABC):
 
     @abstractmethod
     async def get_epg(
-            self,
-            provider_name: str,
-            channel_id: str,
-            start_time: datetime,
-            end_time: datetime
+        self,
+        provider_name: str,
+        channel_id: str,
+        start_time: datetime,
+        end_time: datetime,
     ) -> List[Dict]:
         """Get EPG programs for a channel within time range."""
         pass

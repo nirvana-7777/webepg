@@ -1,11 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Introduce Channel Aliases">
+    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Read EPG from backend">
       <change afterPath="$PROJECT_DIR$/epg.db" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/implementation_plan.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/import_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/import_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/api/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/handlers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/clients/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/clients/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/base.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/clients/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/clients/ultimate_backend_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/ultimate_backend_client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/migrations/v3_ultimate_backend.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/migrations/v3_ultimate_backend.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/schema.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/schema.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/scheduler/jobs.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/scheduler/jobs.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_discovery_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_discovery_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -85,7 +98,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-f2b7a9f6281b-6e1f45a539f7-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.29346.142" />
+        <option value="bundled-python-sdk-2653e85de345-6d6dccd035ac-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.31033.139" />
       </set>
     </attachedChunks>
   </component>
@@ -343,7 +356,23 @@
       <option name="project" value="LOCAL" />
       <updated>1768398863065</updated>
     </task>
-    <option name="localTasksCounter" value="30" />
+    <task id="LOCAL-00030" summary="Introduce Channel Aliases">
+      <option name="closed" value="true" />
+      <created>1769425197835</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1769425197835</updated>
+    </task>
+    <task id="LOCAL-00031" summary="Read EPG from backend">
+      <option name="closed" value="true" />
+      <created>1775418819237</created>
+      <option name="number" value="00031" />
+      <option name="presentableId" value="LOCAL-00031" />
+      <option name="project" value="LOCAL" />
+      <updated>1775418819237</updated>
+    </task>
+    <option name="localTasksCounter" value="32" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -352,7 +381,8 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Initial" />
     <MESSAGE value="Introduce Channel Aliases" />
-    <option name="LAST_COMMIT_MESSAGE" value="Introduce Channel Aliases" />
+    <MESSAGE value="Read EPG from backend" />
+    <option name="LAST_COMMIT_MESSAGE" value="Read EPG from backend" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/webepg$main.coverage" NAME="main Coverage Results" MODIFIED="1766784290681" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

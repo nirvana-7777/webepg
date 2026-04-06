@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 @dataclass
 class UltimateBackendProvider:
     """Provider from Ultimate Backend API."""
+
     name: str
     label: str
     country: Optional[str] = None
@@ -32,6 +33,7 @@ class UltimateBackendProvider:
 @dataclass
 class UltimateBackendChannel:
     """Channel from Ultimate Backend API."""
+
     id: str  # Numeric ID as string
     name: str
     logo_url: Optional[str] = None
@@ -60,6 +62,7 @@ class UltimateBackendChannel:
 @dataclass
 class UltimateBackendProgram:
     """Program from Ultimate Backend EPG API."""
+
     epg_id: int
     schedule_id: str
     title: str

@@ -121,10 +121,10 @@ class UltimateBackendDiscoveryService:
 
     @staticmethod
     async def _upsert_provider(
-            instance_id: int,
-            provider_name: str,
-            provider_label: str,
-            has_epg: bool,
+        instance_id: int,
+        provider_name: str,
+        provider_label: str,
+        has_epg: bool,
     ) -> int:
         """Insert or update provider record."""
         db = get_db()
@@ -162,10 +162,10 @@ class UltimateBackendDiscoveryService:
             return row[0]
 
     async def _process_channel(
-            self,
-            provider_id: int,
-            provider_name: str,
-            channel_data: Dict,
+        self,
+        provider_id: int,
+        provider_name: str,
+        channel_data: Dict,
     ) -> Optional[int]:
         """
         Process a single channel: create logical channel and mapping.
@@ -275,7 +275,9 @@ class UltimateBackendDiscoveryService:
             (ultimate_channel_db_id,),
         )
 
-        logger.info(f"Mapped channel: {channel_name} (ID: {ultimate_channel_id}) -> logical channel {channel.id}")
+        logger.info(
+            f"Mapped channel: {channel_name} (ID: {ultimate_channel_id}) -> logical channel {channel.id}"
+        )
 
         return channel.id
 

@@ -11,7 +11,11 @@ import aiohttp
 from aiohttp import ClientError, ClientResponseError, ClientTimeout
 
 from .base import EPGClient
-from .models import UltimateBackendChannel, UltimateBackendProgram, UltimateBackendProvider
+from .models import (
+    UltimateBackendChannel,
+    UltimateBackendProgram,
+    UltimateBackendProvider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +41,12 @@ class UltimateBackendClient(EPGClient):
     """REST client for Ultimate Backend API."""
 
     def __init__(
-            self,
-            base_url: str,
-            api_key: Optional[str] = None,
-            timeout_seconds: int = 30,
-            max_retries: int = 3,
-            requests_per_second: float = 5.0,
+        self,
+        base_url: str,
+        api_key: Optional[str] = None,
+        timeout_seconds: int = 30,
+        max_retries: int = 3,
+        requests_per_second: float = 5.0,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -64,11 +68,11 @@ class UltimateBackendClient(EPGClient):
         return self._session
 
     async def _request(
-            self,
-            method: str,
-            path: str,
-            params: Optional[Dict] = None,
-            retry_count: int = 0,
+        self,
+        method: str,
+        path: str,
+        params: Optional[Dict] = None,
+        retry_count: int = 0,
     ) -> Dict:
         """Make an HTTP request with retries."""
         await self.rate_limiter.acquire()
@@ -83,14 +87,16 @@ class UltimateBackendClient(EPGClient):
                     logger.warning(f"Rate limited, waiting {retry_after}s")
                     await asyncio.sleep(retry_after)
                     if retry_count < self.max_retries:
-                        return await self._request(method, path, params, retry_count + 1)
+                        return await self._request(
+                            method, path, params, retry_count + 1
+                        )
 
                 response.raise_for_status()
                 return await response.json()
 
         except ClientResponseError as e:
             if e.status >= 500 and retry_count < self.max_retries:
-                wait_time = 2 ** retry_count
+                wait_time = 2**retry_count
                 logger.warning(f"Server error {e.status}, retrying in {wait_time}s")
                 await asyncio.sleep(wait_time)
                 return await self._request(method, path, params, retry_count + 1)
@@ -98,7 +104,7 @@ class UltimateBackendClient(EPGClient):
 
         except ClientError as e:
             if retry_count < self.max_retries:
-                wait_time = 2 ** retry_count
+                wait_time = 2**retry_count
                 logger.warning(f"Request failed: {e}, retrying in {wait_time}s")
                 await asyncio.sleep(wait_time)
                 return await self._request(method, path, params, retry_count + 1)
@@ -121,11 +127,11 @@ class UltimateBackendClient(EPGClient):
         return data.get("channels", [])
 
     async def get_epg(
-            self,
-            provider_name: str,
-            channel_id: str,
-            start_time: datetime,
-            end_time: datetime,
+        self,
+        provider_name: str,
+        channel_id: str,
+        start_time: datetime,
+        end_time: datetime,
     ) -> List[Dict]:
         """
         GET /api/providers/{provider}/channels/{channel_id}/epg

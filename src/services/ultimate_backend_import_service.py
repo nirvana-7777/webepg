@@ -20,12 +20,12 @@ class UltimateBackendImportService:
     """Incremental EPG import from Ultimate Backend."""
 
     def __init__(
-            self,
-            client: UltimateBackendClient,
-            future_days: int = 7,
-            past_days: int = 7,
-            chunk_hours: int = 24,
-            max_concurrent_channels: int = 3,
+        self,
+        client: UltimateBackendClient,
+        future_days: int = 7,
+        past_days: int = 7,
+        chunk_hours: int = 24,
+        max_concurrent_channels: int = 3,
     ):
         self.client = client
         self.future_days = future_days
@@ -116,12 +116,12 @@ class UltimateBackendImportService:
             return await self.incremental_import_channel(**kwargs)
 
     async def incremental_import_channel(
-            self,
-            ultimate_channel_db_id: int,
-            provider_name: str,
-            ultimate_channel_id: str,
-            logical_channel_id: int,
-            channel_name: str,
+        self,
+        ultimate_channel_db_id: int,
+        provider_name: str,
+        ultimate_channel_id: str,
+        logical_channel_id: int,
+        channel_name: str,
     ) -> Dict:
         """
         Incrementally import a single channel.
@@ -129,7 +129,9 @@ class UltimateBackendImportService:
         Returns:
             Dict with import statistics for this channel
         """
-        logger.info(f"Importing channel: {channel_name} ({provider_name}/{ultimate_channel_id})")
+        logger.info(
+            f"Importing channel: {channel_name} ({provider_name}/{ultimate_channel_id})"
+        )
 
         stats = {
             "channel_id": ultimate_channel_db_id,
@@ -152,7 +154,11 @@ class UltimateBackendImportService:
 
         # Calculate time range
         now = datetime.utcnow()
-        start_time = self._parse_last_imported(state) if state else now - timedelta(days=self.past_days)
+        start_time = (
+            self._parse_last_imported(state)
+            if state
+            else now - timedelta(days=self.past_days)
+        )
         end_target = now + timedelta(days=self.future_days)
 
         # Update state to in_progress
@@ -167,7 +173,9 @@ class UltimateBackendImportService:
             while current < end_target:
                 chunk_end = min(current + timedelta(hours=self.chunk_hours), end_target)
 
-                logger.debug(f"Fetching chunk: {current.isoformat()} to {chunk_end.isoformat()}")
+                logger.debug(
+                    f"Fetching chunk: {current.isoformat()} to {chunk_end.isoformat()}"
+                )
 
                 # Fetch programs for this chunk
                 chunk_stats = await self._import_chunk(
@@ -193,8 +201,12 @@ class UltimateBackendImportService:
                     SET last_imported_until = ?, updated_at = ?, program_count = program_count + ?
                     WHERE ultimate_channel_id = ?
                     """,
-                    (chunk_end.isoformat(), datetime.utcnow().isoformat(), chunk_stats["inserted"],
-                     ultimate_channel_db_id),
+                    (
+                        chunk_end.isoformat(),
+                        datetime.utcnow().isoformat(),
+                        chunk_stats["inserted"],
+                        ultimate_channel_db_id,
+                    ),
                 )
 
                 current = chunk_end
@@ -209,11 +221,16 @@ class UltimateBackendImportService:
                 SET sync_status = 'success', last_successful_sync = ?, updated_at = ?
                 WHERE ultimate_channel_id = ?
                 """,
-                (datetime.utcnow().isoformat(), datetime.utcnow().isoformat(), ultimate_channel_db_id),
+                (
+                    datetime.utcnow().isoformat(),
+                    datetime.utcnow().isoformat(),
+                    ultimate_channel_db_id,
+                ),
             )
 
             logger.info(
-                f"Channel {channel_name}: {stats['inserted']} inserted, {stats['updated']} updated, {stats['skipped']} skipped")
+                f"Channel {channel_name}: {stats['inserted']} inserted, {stats['updated']} updated, {stats['skipped']} skipped"
+            )
 
         except Exception as e:
             error_msg = str(e)
@@ -226,7 +243,11 @@ class UltimateBackendImportService:
                 SET sync_status = 'failed', last_error = ?, updated_at = ?
                 WHERE ultimate_channel_id = ?
                 """,
-                (error_msg[:500], datetime.utcnow().isoformat(), ultimate_channel_db_id),
+                (
+                    error_msg[:500],
+                    datetime.utcnow().isoformat(),
+                    ultimate_channel_db_id,
+                ),
             )
 
             raise
@@ -234,12 +255,12 @@ class UltimateBackendImportService:
         return stats
 
     async def _import_chunk(
-            self,
-            provider_name: str,
-            ultimate_channel_id: str,
-            logical_channel_id: int,
-            start_time: datetime,
-            end_time: datetime,
+        self,
+        provider_name: str,
+        ultimate_channel_id: str,
+        logical_channel_id: int,
+        start_time: datetime,
+        end_time: datetime,
     ) -> Dict:
         """
         Import a single time chunk.
@@ -258,7 +279,12 @@ class UltimateBackendImportService:
                 VALUES ((SELECT id FROM ultimate_channels WHERE ultimate_channel_id = ? AND ultimate_provider_id IN 
                          (SELECT id FROM ultimate_providers WHERE provider_name = ?)), ?, ?, 'pending')
                 """,
-                (ultimate_channel_id, provider_name, start_time.isoformat(), end_time.isoformat()),
+                (
+                    ultimate_channel_id,
+                    provider_name,
+                    start_time.isoformat(),
+                    end_time.isoformat(),
+                ),
             )
             row = db.fetchone("SELECT last_insert_rowid()")
             batch_id = row[0] if row else None
@@ -280,7 +306,9 @@ class UltimateBackendImportService:
 
             if not programs_data:
                 logger.debug(f"No programs found for chunk {start_time} to {end_time}")
-                self._update_batch(batch_id, 0, 0, 0, 0, fetch_duration * 1000, "success")
+                self._update_batch(
+                    batch_id, 0, 0, 0, 0, fetch_duration * 1000, "success"
+                )
                 return {"inserted": 0, "updated": 0, "skipped": 0}
 
             # Process each program
@@ -291,7 +319,9 @@ class UltimateBackendImportService:
             for prog_data in programs_data:
                 try:
                     program = UltimateBackendProgram.from_api_response(prog_data)
-                    result = self._upsert_program(program, logical_channel_id, provider_name)
+                    result = self._upsert_program(
+                        program, logical_channel_id, provider_name
+                    )
 
                     if result == "inserted":
                         inserted += 1
@@ -307,8 +337,15 @@ class UltimateBackendImportService:
             total_duration = time.time() - start_ms
 
             # Update batch record
-            self._update_batch(batch_id, len(programs_data), inserted, updated, skipped, total_duration * 1000,
-                               "success")
+            self._update_batch(
+                batch_id,
+                len(programs_data),
+                inserted,
+                updated,
+                skipped,
+                total_duration * 1000,
+                "success",
+            )
 
             return {"inserted": inserted, "updated": updated, "skipped": skipped}
 
@@ -320,9 +357,9 @@ class UltimateBackendImportService:
 
     @staticmethod
     def _upsert_program(
-            program: UltimateBackendProgram,
-            logical_channel_id: int,
-            provider_name: str,
+        program: UltimateBackendProgram,
+        logical_channel_id: int,
+        provider_name: str,
     ) -> str:
         """
         Insert or update a program based on ultimate_epg_id.
@@ -342,7 +379,9 @@ class UltimateBackendImportService:
         program_dict["channel_id"] = logical_channel_id
 
         # Get provider_id from provider_name
-        provider_row = db.fetchone("SELECT id FROM providers WHERE name = ?", (provider_name,))
+        provider_row = db.fetchone(
+            "SELECT id FROM providers WHERE name = ?", (provider_name,)
+        )
         if not provider_row:
             # Create a provider entry for Ultimate Backend if not exists
             db.execute(
@@ -362,10 +401,7 @@ class UltimateBackendImportService:
             existing_desc = existing[4]
 
             # Simple change detection
-            changed = (
-                    existing_title != program.title or
-                    existing_desc != program.plot
-            )
+            changed = existing_title != program.title or existing_desc != program.plot
 
             if changed:
                 # Update existing
@@ -441,14 +477,14 @@ class UltimateBackendImportService:
 
     @staticmethod
     def _update_batch(
-            batch_id: Optional[int],
-            fetched: int,
-            inserted: int,
-            updated: int,
-            skipped: int,
-            duration_ms: float,
-            status: str,
-            error_msg: Optional[str] = None,
+        batch_id: Optional[int],
+        fetched: int,
+        inserted: int,
+        updated: int,
+        skipped: int,
+        duration_ms: float,
+        status: str,
+        error_msg: Optional[str] = None,
     ):
         """Update batch record with results."""
         if not batch_id:
@@ -462,7 +498,16 @@ class UltimateBackendImportService:
                 programs_skipped = ?, duration_ms = ?, status = ?, error_message = ?
             WHERE id = ?
             """,
-            (fetched, inserted, updated, skipped, int(duration_ms), status, error_msg, batch_id),
+            (
+                fetched,
+                inserted,
+                updated,
+                skipped,
+                int(duration_ms),
+                status,
+                error_msg,
+                batch_id,
+            ),
         )
 
     @staticmethod
