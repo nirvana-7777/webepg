@@ -1,3 +1,4 @@
+# src/api/server.py
 """
 Flask HTTP server for EPG API.
 """
@@ -15,19 +16,25 @@ from .handlers import api_bp, init_handlers
 logger = logging.getLogger(__name__)
 
 
-def create_app(config: dict, scheduler: JobScheduler) -> Flask:
+def create_app(config: dict = None, scheduler: JobScheduler = None) -> Flask:
     """
     Create and configure Flask application.
 
     Args:
-        config: Configuration dictionary
-        scheduler: Job scheduler instance
+        config: Configuration dictionary (optional for gunicorn)
+        scheduler: Job scheduler instance (optional for gunicorn)
 
     Returns:
         Configured Flask app
     """
     app = Flask(__name__)
 
+    # Use default config if not provided
+    if config is None:
+        from ..config import load_config
+        config_obj = load_config()
+        config = config_obj.get_section("server")
+    
     # Configure CORS if needed
     if config.get("cors_enabled", False):
         CORS(app)
@@ -46,13 +53,11 @@ def create_app(config: dict, scheduler: JobScheduler) -> Flask:
     @app.before_request
     def log_request():
         from flask import request
-
         logger.debug(f"{request.method} {request.path}")
 
     @app.after_request
     def log_response(response):
         from flask import request
-
         logger.debug(f"{request.method} {request.path} - {response.status_code}")
         return response
 
