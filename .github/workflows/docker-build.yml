@@ -186,15 +186,18 @@ jobs:
 
       - name: Run container smoke test
         run: |
-          # Start container
           docker run -d --name epg-test \
             -p 8080:8080 \
             -e EPG_DB_PATH=/tmp/test.db \
             epg-service:test
 
-          # Wait for container to be healthy
           echo "Waiting for container to start..."
           sleep 10
+
+          # Always print logs so we can see crash reason
+          echo "=== Container logs ==="
+          docker logs epg-test || true
+          echo "====================="
 
           # Check if container is running
           docker ps | grep epg-test
