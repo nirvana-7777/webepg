@@ -85,7 +85,8 @@ def main():
             sys.exit(1)
 
         # Initialize scheduler
-        scheduler_config = config.get_section("scheduler")
+        scheduler_config = config.to_dict()
+        scheduler_config.update(config.get_section("scheduler"))
         scheduler_config["retention_days"] = config.get("retention.days", 7)
         scheduler = JobScheduler(scheduler_config)
 
