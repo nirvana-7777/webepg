@@ -135,10 +135,14 @@ class Config:
             )
 
         if "ULTIMATE_BACKEND_URL" in os.environ:
-            self.config["ultimate_backend"]["instance"]["base_url"] = os.environ["ULTIMATE_BACKEND_URL"]
+            self.config["ultimate_backend"]["instance"]["base_url"] = os.environ[
+                "ULTIMATE_BACKEND_URL"
+            ]
 
         if "ULTIMATE_BACKEND_API_KEY" in os.environ:
-            self.config["ultimate_backend"]["instance"]["api_key"] = os.environ["ULTIMATE_BACKEND_API_KEY"]
+            self.config["ultimate_backend"]["instance"]["api_key"] = os.environ[
+                "ULTIMATE_BACKEND_API_KEY"
+            ]
 
     def get(self, key_path: str, default: Any = None) -> Any:
         """

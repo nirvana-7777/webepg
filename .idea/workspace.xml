@@ -2,23 +2,11 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Read EPG from backend">
-      <change afterPath="$PROJECT_DIR$/epg.db" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/implementation_plan.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/api/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/handlers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/clients/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/clients/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/clients/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/clients/ultimate_backend_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/ultimate_backend_client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/api/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/server.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/database/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/database/migrations/v3_ultimate_backend.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/migrations/v3_ultimate_backend.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/database/schema.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/schema.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/scheduler/jobs.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/scheduler/jobs.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_discovery_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_discovery_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -372,7 +360,31 @@
       <option name="project" value="LOCAL" />
       <updated>1775418819237</updated>
     </task>
-    <option name="localTasksCounter" value="32" />
+    <task id="LOCAL-00032" summary="Read EPG from backend">
+      <option name="closed" value="true" />
+      <created>1775457221254</created>
+      <option name="number" value="00032" />
+      <option name="presentableId" value="LOCAL-00032" />
+      <option name="project" value="LOCAL" />
+      <updated>1775457221254</updated>
+    </task>
+    <task id="LOCAL-00033" summary="Read EPG from backend">
+      <option name="closed" value="true" />
+      <created>1775458391473</created>
+      <option name="number" value="00033" />
+      <option name="presentableId" value="LOCAL-00033" />
+      <option name="project" value="LOCAL" />
+      <updated>1775458391473</updated>
+    </task>
+    <task id="LOCAL-00034" summary="Read EPG from backend">
+      <option name="closed" value="true" />
+      <created>1775459036022</created>
+      <option name="number" value="00034" />
+      <option name="presentableId" value="LOCAL-00034" />
+      <option name="project" value="LOCAL" />
+      <updated>1775459036022</updated>
+    </task>
+    <option name="localTasksCounter" value="35" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

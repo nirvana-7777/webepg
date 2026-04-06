@@ -32,9 +32,10 @@ def create_app(config: dict = None, scheduler: JobScheduler = None) -> Flask:
     # Use default config if not provided
     if config is None:
         from ..config import load_config
+
         config_obj = load_config()
         config = config_obj.get_section("server")
-    
+
     # Configure CORS if needed
     if config.get("cors_enabled", False):
         CORS(app)
@@ -53,11 +54,13 @@ def create_app(config: dict = None, scheduler: JobScheduler = None) -> Flask:
     @app.before_request
     def log_request():
         from flask import request
+
         logger.debug(f"{request.method} {request.path}")
 
     @app.after_request
     def log_response(response):
         from flask import request
+
         logger.debug(f"{request.method} {request.path} - {response.status_code}")
         return response
 

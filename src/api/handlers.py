@@ -10,7 +10,8 @@ from flask import Blueprint, jsonify, request
 from ..scheduler.jobs import JobScheduler
 from ..services.epg_service import EPGService
 from ..services.provider_service import ProviderService
-from ..services.ultimate_backend_import_service import UltimateBackendImportService
+from ..services.ultimate_backend_import_service import \
+    UltimateBackendImportService
 
 logger = logging.getLogger(__name__)
 
