@@ -9,8 +9,8 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
-from ..clients.ultimate_backend_client import UltimateBackendClient
 from ..clients.models import UltimateBackendProgram
+from ..clients.ultimate_backend_client import UltimateBackendClient
 from ..database.connection import get_db
 
 logger = logging.getLogger(__name__)

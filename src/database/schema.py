@@ -190,7 +190,8 @@ class SchemaManager:
         logger.info(f"Migrating database from version {from_version} to {to_version}")
 
         if from_version == 2 and to_version == 3:
-            from ..database.migrations.v3_ultimate_backend import migrate_v2_to_v3
+            from ..database.migrations.v3_ultimate_backend import \
+                migrate_v2_to_v3
 
             migrate_v2_to_v3(conn)
             return

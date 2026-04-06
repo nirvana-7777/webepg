@@ -11,11 +11,8 @@ import aiohttp
 from aiohttp import ClientError, ClientResponseError, ClientTimeout
 
 from .base import EPGClient
-from .models import (
-    UltimateBackendChannel,
-    UltimateBackendProgram,
-    UltimateBackendProvider,
-)
+from .models import (UltimateBackendChannel, UltimateBackendProgram,
+                     UltimateBackendProvider)
 
 logger = logging.getLogger(__name__)
 

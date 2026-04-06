@@ -6,7 +6,13 @@
       <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/api/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/handlers.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/api/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/server.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/clients/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/clients/ultimate_backend_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/ultimate_backend_client.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/schema.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/schema.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/scheduler/jobs.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/scheduler/jobs.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -384,7 +390,15 @@
       <option name="project" value="LOCAL" />
       <updated>1775459036022</updated>
     </task>
-    <option name="localTasksCounter" value="35" />
+    <task id="LOCAL-00035" summary="Read EPG from backend">
+      <option name="closed" value="true" />
+      <created>1775461475634</created>
+      <option name="number" value="00035" />
+      <option name="presentableId" value="LOCAL-00035" />
+      <option name="project" value="LOCAL" />
+      <updated>1775461475634</updated>
+    </task>
+    <option name="localTasksCounter" value="36" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

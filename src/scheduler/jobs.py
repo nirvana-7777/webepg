@@ -12,10 +12,10 @@ from apscheduler.triggers.cron import CronTrigger
 
 from ..services.cleanup_service import CleanupService
 from ..services.import_service import ImportService
-from ..services.ultimate_backend_discovery_service import (
-    UltimateBackendDiscoveryService,
-)
-from ..services.ultimate_backend_import_service import UltimateBackendImportService
+from ..services.ultimate_backend_discovery_service import \
+    UltimateBackendDiscoveryService
+from ..services.ultimate_backend_import_service import \
+    UltimateBackendImportService
 
 logger = logging.getLogger(__name__)
 

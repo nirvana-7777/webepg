@@ -1,12 +1,9 @@
 """HTTP clients for external EPG sources."""
 
 from .base import EPGClient
+from .models import (UltimateBackendChannel, UltimateBackendProgram,
+                     UltimateBackendProvider)
 from .ultimate_backend_client import UltimateBackendClient
-from .models import (
-    UltimateBackendProgram,
-    UltimateBackendChannel,
-    UltimateBackendProvider,
-)
 
 __all__ = [
     "EPGClient",
