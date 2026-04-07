@@ -3,7 +3,7 @@ Data models for Ultimate Backend API responses.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 
@@ -34,7 +34,9 @@ class UltimateBackendProvider:
 class UltimateBackendChannel:
     """Channel from Ultimate Backend API."""
 
-    id: str  # Numeric ID as string
+    # NOTE: The real API uses string IDs like "Zf4PyxjqUvbe" (magenta2),
+    # not numeric IDs. The model already stores id as str, which is correct.
+    id: str
     name: str
     logo_url: Optional[str] = None
     channel_number: int = 0
@@ -46,16 +48,30 @@ class UltimateBackendChannel:
 
     @classmethod
     def from_api_response(cls, data: dict) -> "UltimateBackendChannel":
+        # Safely coerce channel_number: missing, null, or non-integer all → 0
+        raw_number = data.get("ChannelNumber")
+        try:
+            channel_number = int(raw_number) if raw_number is not None else 0
+        except (ValueError, TypeError):
+            channel_number = 0
+
+        # Safely coerce catchup_hours: fall back to provider-level value if present
+        raw_catchup = data.get("CatchupHours")
+        try:
+            catchup_hours = int(raw_catchup) if raw_catchup is not None else 168
+        except (ValueError, TypeError):
+            catchup_hours = 168
+
         return cls(
             id=str(data.get("Id", data.get("id", ""))),
             name=data.get("Name", data.get("name", "")),
             logo_url=data.get("LogoUrl", data.get("logo_url")),
-            channel_number=data.get("ChannelNumber", 0),
-            catchup_hours=data.get("CatchupHours", 168),
+            channel_number=channel_number,
+            catchup_hours=catchup_hours,
             live_id=data.get("LiveId"),
             stream_uid=data.get("StreamUid"),
-            country=data.get("Country"),
-            language=data.get("Language"),
+            country=data.get("Country", data.get("country")),
+            language=data.get("Language", data.get("language")),
         )
 
 
@@ -90,34 +106,69 @@ class UltimateBackendProgram:
     category_ids: List[int] = field(default_factory=list)
 
     @classmethod
+    def _parse_datetime(cls, value: Optional[str]) -> Optional[datetime]:
+        """
+        Parse an ISO 8601 datetime string, converting timezone-aware values
+        to UTC-naive datetimes for consistent database storage.
+
+        The real API returns timezone-aware strings like:
+            "2026-04-07T11:00:00+00:00"
+        Python's datetime.fromisoformat() handles these in 3.7+, but the
+        resulting datetime is tz-aware. We normalise to UTC-naive here.
+        """
+        if not value:
+            return None
+        try:
+            dt = datetime.fromisoformat(value)
+            if dt.tzinfo is not None:
+                # Convert to UTC then strip tzinfo
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Cannot parse datetime '{value}': {e}") from e
+
+    @classmethod
     def from_api_response(cls, data: dict) -> "UltimateBackendProgram":
         """Parse API response into model."""
+        start = cls._parse_datetime(data.get("start", ""))
+        end = cls._parse_datetime(data.get("end", ""))
+
+        if start is None or end is None:
+            raise ValueError(
+                f"Program {data.get('epg_id')} missing start/end time"
+            )
+
+        # rating: API sends 0 for "no rating"; normalise 0 → None so we don't
+        # store a meaningless "0" rating in the database.
+        raw_rating = data.get("rating")
+        rating = int(raw_rating) if raw_rating not in (None, 0) else None
+
         return cls(
             epg_id=data.get("epg_id"),
             schedule_id=data.get("schedule_id", ""),
             title=data.get("title", ""),
-            start=datetime.fromisoformat(data.get("start", "")),
-            end=datetime.fromisoformat(data.get("end", "")),
-            plot=data.get("plot"),
-            original_title=data.get("original_title"),
-            episode_title=data.get("episode_title"),
-            genre=data.get("genre"),
-            categories=data.get("categories", []),
+            start=start,
+            end=end,
+            plot=data.get("plot") or None,
+            original_title=data.get("original_title") or None,
+            episode_title=data.get("episode_title") or None,
+            genre=data.get("genre") or None,
+            categories=data.get("categories") or [],
             season_num=data.get("season_num"),
             episode_num=data.get("episode_num"),
-            has_episode_info=data.get("has_episode_info", False),
-            director=data.get("director"),
-            cast=data.get("cast", []),
-            producer=data.get("producer"),
+            has_episode_info=bool(data.get("has_episode_info", False)),
+            director=data.get("director") or None,
+            cast=data.get("cast") or [],
+            producer=data.get("producer") or None,
             year=data.get("year"),
-            rating=data.get("rating"),
-            thumbnail=data.get("thumbnail"),
-            images=data.get("images"),
+            rating=rating,
+            thumbnail=data.get("thumbnail") or None,
+            images=data.get("images") or None,
             live_id=data.get("live_id"),
-            live_name=data.get("live_name"),
+            live_name=data.get("live_name") or None,
             content_id=data.get("content_id"),
             genre_id=data.get("genre_id"),
-            category_ids=data.get("category_ids", []),
+            category_ids=data.get("category_ids") or [],
         )
 
     def to_dict(self) -> dict:
@@ -141,7 +192,7 @@ class UltimateBackendProgram:
             "actors": json.dumps(self.cast) if self.cast else None,
             "producer": self.producer,
             "production_year": str(self.year) if self.year else None,
-            "rating": str(self.rating) if self.rating else None,
+            "rating": str(self.rating) if self.rating is not None else None,
             "thumbnail_url": self.thumbnail,
             "images": json.dumps(self.images) if self.images else None,
         }

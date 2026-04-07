@@ -32,52 +32,79 @@ class UltimateBackendImportService:
         self.past_days = past_days
         self.chunk_hours = chunk_hours
         self.max_concurrent_channels = max_concurrent_channels
-        self._semaphore = asyncio.Semaphore(max_concurrent_channels)
+        # NOTE: asyncio.Semaphore must be created inside the running event loop.
+        # We defer creation to incremental_import_all() so that the semaphore
+        # is always bound to the correct loop (important when jobs call
+        # asyncio.run(), which creates a fresh loop each time).
+        self._semaphore: Optional[asyncio.Semaphore] = None
+
+    def _get_semaphore(self) -> asyncio.Semaphore:
+        """
+        Return the semaphore for the current event loop, creating it if needed.
+
+        Creating the Semaphore lazily here (rather than in __init__) ensures it
+        is always attached to the loop that is actually running — which matters
+        when the service is reused across multiple asyncio.run() calls.
+        """
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.max_concurrent_channels)
+        return self._semaphore
 
     async def incremental_import_all(self) -> Dict:
         """
         Import all channels incrementally.
 
         Returns:
-            Dict with import statistics
+            Dict with import statistics.
+
+        NOTE: Closes the HTTP client session before returning so that the next
+        asyncio.run() call starts with a clean session on a fresh event loop.
         """
         logger.info("Starting incremental import for all Ultimate Backend channels")
 
+        # Reset semaphore so it is created fresh on the current event loop.
+        self._semaphore = None
+
         db = get_db()
 
-        # Get all active ultimate channels with mappings
-        rows = db.fetchall("""
-            SELECT 
-                uc.id as ultimate_channel_id,
-                uc.ultimate_channel_id as channel_id,
-                uc.channel_name,
-                up.provider_name,
-                ucm.channel_id as logical_channel_id
-            FROM ultimate_channels uc
-            JOIN ultimate_providers up ON uc.ultimate_provider_id = up.id
-            JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
-            WHERE uc.enabled = 1 AND up.enabled = 1
-        """)
+        try:
+            # Get all active ultimate channels with mappings
+            rows = db.fetchall("""
+                SELECT
+                    uc.id                   AS ultimate_channel_id,
+                    uc.ultimate_channel_id  AS channel_id,
+                    uc.channel_name,
+                    up.provider_name,
+                    ucm.channel_id          AS logical_channel_id
+                FROM ultimate_channels uc
+                JOIN ultimate_providers up  ON uc.ultimate_provider_id = up.id
+                JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
+                WHERE uc.enabled = 1 AND up.enabled = 1
+            """)
 
-        if not rows:
-            logger.info("No ultimate channels found to import")
-            return {"total_channels": 0, "results": []}
+            if not rows:
+                logger.info("No ultimate channels found to import")
+                return {"total_channels": 0, "results": []}
 
-        logger.info(f"Found {len(rows)} channels to import")
+            logger.info(f"Found {len(rows)} channels to import")
 
-        # Process channels concurrently with semaphore
-        tasks = []
-        for row in rows:
-            task = self._import_channel_with_semaphore(
-                ultimate_channel_db_id=row["ultimate_channel_id"],
-                provider_name=row["provider_name"],
-                ultimate_channel_id=row["channel_id"],
-                logical_channel_id=row["logical_channel_id"],
-                channel_name=row["channel_name"],
-            )
-            tasks.append(task)
+            # Process channels concurrently with semaphore
+            tasks = [
+                self._import_channel_with_semaphore(
+                    ultimate_channel_db_id=row["ultimate_channel_id"],
+                    provider_name=row["provider_name"],
+                    ultimate_channel_id=row["channel_id"],
+                    logical_channel_id=row["logical_channel_id"],
+                    channel_name=row["channel_name"],
+                )
+                for row in rows
+            ]
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        finally:
+            # Always close the session before the event loop shuts down.
+            await self.client.close()
 
         # Compile statistics
         stats = {
@@ -112,7 +139,7 @@ class UltimateBackendImportService:
 
     async def _import_channel_with_semaphore(self, **kwargs) -> Dict:
         """Import a channel with semaphore limiting."""
-        async with self._semaphore:
+        async with self._get_semaphore():
             return await self.incremental_import_channel(**kwargs)
 
     async def incremental_import_channel(
@@ -127,7 +154,7 @@ class UltimateBackendImportService:
         Incrementally import a single channel.
 
         Returns:
-            Dict with import statistics for this channel
+            Dict with import statistics for this channel.
         """
         logger.info(
             f"Importing channel: {channel_name} ({provider_name}/{ultimate_channel_id})"
@@ -163,7 +190,11 @@ class UltimateBackendImportService:
 
         # Update state to in_progress
         db.execute(
-            "UPDATE channel_import_state SET sync_status = 'in_progress', updated_at = ? WHERE ultimate_channel_id = ?",
+            """
+            UPDATE channel_import_state
+            SET sync_status = 'in_progress', updated_at = ?
+            WHERE ultimate_channel_id = ?
+            """,
             (datetime.utcnow().isoformat(), ultimate_channel_db_id),
         )
 
@@ -177,7 +208,6 @@ class UltimateBackendImportService:
                     f"Fetching chunk: {current.isoformat()} to {chunk_end.isoformat()}"
                 )
 
-                # Fetch programs for this chunk
                 chunk_stats = await self._import_chunk(
                     provider_name=provider_name,
                     ultimate_channel_id=ultimate_channel_id,
@@ -229,7 +259,8 @@ class UltimateBackendImportService:
             )
 
             logger.info(
-                f"Channel {channel_name}: {stats['inserted']} inserted, {stats['updated']} updated, {stats['skipped']} skipped"
+                f"Channel {channel_name}: {stats['inserted']} inserted, "
+                f"{stats['updated']} updated, {stats['skipped']} skipped"
             )
 
         except Exception as e:
@@ -266,7 +297,7 @@ class UltimateBackendImportService:
         Import a single time chunk.
 
         Returns:
-            Dict with chunk statistics
+            Dict with chunk statistics.
         """
         db = get_db()
         batch_id = None
@@ -276,8 +307,14 @@ class UltimateBackendImportService:
             db.execute(
                 """
                 INSERT INTO import_batches (ultimate_channel_id, batch_start, batch_end, status)
-                VALUES ((SELECT id FROM ultimate_channels WHERE ultimate_channel_id = ? AND ultimate_provider_id IN 
-                         (SELECT id FROM ultimate_providers WHERE provider_name = ?)), ?, ?, 'pending')
+                VALUES (
+                    (SELECT id FROM ultimate_channels
+                     WHERE ultimate_channel_id = ?
+                       AND ultimate_provider_id IN (
+                           SELECT id FROM ultimate_providers WHERE provider_name = ?
+                       )),
+                    ?, ?, 'pending'
+                )
                 """,
                 (
                     ultimate_channel_id,
@@ -294,7 +331,6 @@ class UltimateBackendImportService:
         start_ms = time.time()
 
         try:
-            # Fetch programs from API
             programs_data = await self.client.get_epg(
                 provider_name=provider_name,
                 channel_id=ultimate_channel_id,
@@ -331,12 +367,13 @@ class UltimateBackendImportService:
                         skipped += 1
 
                 except Exception as e:
-                    logger.warning(f"Failed to process program: {e}")
+                    logger.warning(
+                        f"Failed to process program {prog_data.get('epg_id', '?')}: {e}"
+                    )
                     skipped += 1
 
             total_duration = time.time() - start_ms
 
-            # Update batch record
             self._update_batch(
                 batch_id,
                 len(programs_data),
@@ -371,21 +408,27 @@ class UltimateBackendImportService:
 
         # Check if program exists
         existing = db.fetchone(
-            "SELECT id, title, start_time, end_time, description FROM programs WHERE ultimate_epg_id = ?",
+            """
+            SELECT id, title, start_time, end_time, description
+            FROM programs
+            WHERE ultimate_epg_id = ?
+            """,
             (program.epg_id,),
         )
 
         program_dict = program.to_dict()
         program_dict["channel_id"] = logical_channel_id
 
-        # Get provider_id from provider_name
+        # Get or create provider row
         provider_row = db.fetchone(
             "SELECT id FROM providers WHERE name = ?", (provider_name,)
         )
         if not provider_row:
-            # Create a provider entry for Ultimate Backend if not exists
             db.execute(
-                "INSERT INTO providers (name, display_name, source_type) VALUES (?, ?, 'ultimate_backend')",
+                """
+                INSERT INTO providers (name, display_name, source_type)
+                VALUES (?, ?, 'ultimate_backend')
+                """,
                 (provider_name, provider_name),
             )
             provider_row = db.fetchone("SELECT last_insert_rowid()")
@@ -393,25 +436,28 @@ class UltimateBackendImportService:
         program_dict["provider_id"] = provider_row[0]
 
         if existing:
-            # Check if program has changed (compare relevant fields)
             existing_id = existing[0]
             existing_title = existing[1]
-            existing_start = existing[2]
-            existing_end = existing[3]
             existing_desc = existing[4]
 
-            # Simple change detection
-            changed = existing_title != program.title or existing_desc != program.plot
+            # Change detection: title or description changed.
+            # start/end time changes are also updated to handle schedule shifts.
+            changed = (
+                existing_title != program.title
+                or existing_desc != program.plot
+            )
 
             if changed:
-                # Update existing
                 db.execute(
                     """
                     UPDATE programs
-                    SET title = ?, subtitle = ?, description = ?, start_time = ?, end_time = ?,
-                        category = ?, season_num = ?, episode_num = ?, director = ?, actors = ?,
-                        producer = ?, production_year = ?, rating = ?, thumbnail_url = ?,
-                        images = ?, updated_at = CURRENT_TIMESTAMP
+                    SET title = ?, subtitle = ?, description = ?,
+                        start_time = ?, end_time = ?,
+                        category = ?, season_num = ?, episode_num = ?,
+                        director = ?, actors = ?, producer = ?,
+                        production_year = ?, rating = ?,
+                        thumbnail_url = ?, images = ?,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                     """,
                     (
@@ -427,7 +473,8 @@ class UltimateBackendImportService:
                         json.dumps(program.cast) if program.cast else None,
                         program.producer,
                         str(program.year) if program.year else None,
-                        str(program.rating) if program.rating else None,
+                        # rating is already None when API sends 0 (see models.py)
+                        str(program.rating) if program.rating is not None else None,
                         program.thumbnail,
                         json.dumps(program.images) if program.images else None,
                         existing_id,
@@ -436,18 +483,27 @@ class UltimateBackendImportService:
                 logger.debug(f"Updated program {program.epg_id}: {program.title}")
                 return "updated"
             else:
-                # No change, skip
                 return "skipped"
         else:
-            # Insert new
             db.execute(
                 """
                 INSERT INTO programs (
-                    channel_id, provider_id, start_time, end_time, title, subtitle, description,
-                    category, ultimate_epg_id, schedule_id, season_num, episode_num,
-                    has_episode_info, director, actors, producer, production_year,
-                    rating, thumbnail_url, images, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    channel_id, provider_id, start_time, end_time,
+                    title, subtitle, description,
+                    category, ultimate_epg_id, schedule_id,
+                    season_num, episode_num, has_episode_info,
+                    director, actors, producer,
+                    production_year, rating, thumbnail_url, images,
+                    created_at
+                ) VALUES (
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?,
+                    CURRENT_TIMESTAMP
+                )
                 """,
                 (
                     logical_channel_id,
@@ -467,7 +523,8 @@ class UltimateBackendImportService:
                     json.dumps(program.cast) if program.cast else None,
                     program.producer,
                     program_dict.get("production_year"),
-                    program_dict.get("rating"),
+                    # rating is already None when API sends 0 (see models.py)
+                    str(program.rating) if program.rating is not None else None,
                     program.thumbnail,
                     json.dumps(program.images) if program.images else None,
                 ),

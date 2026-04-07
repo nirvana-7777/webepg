@@ -27,7 +27,11 @@ class UltimateBackendDiscoveryService:
         Discover all providers and their channels.
 
         Returns:
-            Dict with discovery statistics
+            Dict with discovery statistics.
+
+        NOTE: This coroutine closes the underlying HTTP client session before
+        returning so that callers using asyncio.run() start clean on the next
+        invocation (no stale connections bound to a dead event loop).
         """
         logger.info("Starting Ultimate Backend discovery")
 
@@ -39,63 +43,82 @@ class UltimateBackendDiscoveryService:
             "errors": [],
         }
 
-        # Get instance ID (default to 1 for now)
-        instance_id = await self._get_or_create_instance()
+        try:
+            # Get instance ID (default to 1 for now)
+            instance_id = await self._get_or_create_instance()
 
-        # Fetch all providers
-        providers = await self.client.get_providers()
-        stats["providers_found"] = len(providers)
+            # Fetch all providers
+            providers = await self.client.get_providers()
+            stats["providers_found"] = len(providers)
 
-        for provider_data in providers:
-            provider_name = provider_data.get("name")
-            if not provider_name:
-                continue
+            for provider_data in providers:
+                provider_name = provider_data.get("name")
+                if not provider_name:
+                    continue
 
-            logger.info(f"Discovering provider: {provider_name}")
+                # Skip providers that are not ready or not enabled
+                if not provider_data.get("enabled", True):
+                    logger.debug(f"Provider {provider_name} is disabled, skipping")
+                    continue
+                if not provider_data.get("instance_ready", True):
+                    logger.debug(
+                        f"Provider {provider_name} instance not ready, skipping"
+                    )
+                    continue
 
-            # Check if provider has EPG
-            has_epg = await self.client.has_epg(provider_name)
+                logger.info(f"Discovering provider: {provider_name}")
 
-            if not has_epg:
-                logger.debug(f"Provider {provider_name} has no EPG, skipping")
-                continue
+                # Check if provider has EPG
+                has_epg = await self.client.has_epg(provider_name)
 
-            stats["providers_with_epg"] += 1
+                if not has_epg:
+                    logger.debug(f"Provider {provider_name} has no EPG, skipping")
+                    continue
 
-            # Create or update provider record
-            provider_id = await self._upsert_provider(
-                instance_id=instance_id,
-                provider_name=provider_name,
-                provider_label=provider_data.get("label", provider_name),
-                has_epg=has_epg,
-            )
+                stats["providers_with_epg"] += 1
 
-            # Discover channels for this provider
-            try:
-                channels = await self.client.get_channels(provider_name)
-                stats["channels_found"] += len(channels)
+                # Create or update provider record
+                provider_id = await self._upsert_provider(
+                    instance_id=instance_id,
+                    provider_name=provider_name,
+                    provider_label=provider_data.get("label", provider_name),
+                    has_epg=has_epg,
+                )
 
-                for channel_data in channels:
-                    try:
-                        channel_id = await self._process_channel(
-                            provider_id=provider_id,
-                            provider_name=provider_name,
-                            channel_data=channel_data,
-                        )
-                        if channel_id:
-                            stats["channels_mapped"] += 1
-                    except Exception as e:
-                        error_msg = f"Failed to process channel {channel_data.get('Name', 'unknown')}: {e}"
-                        logger.error(error_msg)
-                        stats["errors"].append(error_msg)
+                # Discover channels for this provider
+                try:
+                    channels = await self.client.get_channels(provider_name)
+                    stats["channels_found"] += len(channels)
 
-            except Exception as e:
-                error_msg = f"Failed to get channels for {provider_name}: {e}"
-                logger.error(error_msg)
-                stats["errors"].append(error_msg)
+                    for channel_data in channels:
+                        try:
+                            channel_id = await self._process_channel(
+                                provider_id=provider_id,
+                                provider_name=provider_name,
+                                channel_data=channel_data,
+                            )
+                            if channel_id:
+                                stats["channels_mapped"] += 1
+                        except Exception as e:
+                            error_msg = (
+                                f"Failed to process channel "
+                                f"{channel_data.get('Name', 'unknown')}: {e}"
+                            )
+                            logger.error(error_msg)
+                            stats["errors"].append(error_msg)
 
-        # Update discovery timestamp
-        await self._update_discovery_timestamp(instance_id)
+                except Exception as e:
+                    error_msg = f"Failed to get channels for {provider_name}: {e}"
+                    logger.error(error_msg)
+                    stats["errors"].append(error_msg)
+
+            # Update discovery timestamp
+            await self._update_discovery_timestamp(instance_id)
+
+        finally:
+            # Always close the session so the next asyncio.run() call starts
+            # with a fresh session on a fresh event loop.
+            await self.client.close()
 
         logger.info(f"Discovery complete: {stats}")
         return stats
@@ -138,7 +161,6 @@ class UltimateBackendDiscoveryService:
         )
 
         if row:
-            # Update existing
             db.execute(
                 """
                 UPDATE ultimate_providers
@@ -149,7 +171,6 @@ class UltimateBackendDiscoveryService:
             )
             return row[0]
         else:
-            # Insert new
             db.execute(
                 """
                 INSERT INTO ultimate_providers (
@@ -170,27 +191,48 @@ class UltimateBackendDiscoveryService:
         """
         Process a single channel: create logical channel and mapping.
 
+        The real API returns string channel IDs (e.g. "Zf4PyxjqUvbe" for
+        magenta2 channels). These are stored as-is in ultimate_channel_id.
+
         Returns:
-            EPG Service channel ID if created, None otherwise
+            EPG Service channel ID if created/found, None otherwise.
         """
         db = get_db()
 
-        ultimate_channel_id = str(channel_data.get("Id", ""))
-        channel_name = channel_data.get("Name", "")
+        # Channel IDs are opaque strings — do NOT cast to int.
+        ultimate_channel_id = str(channel_data.get("Id", channel_data.get("id", "")))
+        channel_name = channel_data.get("Name", channel_data.get("name", ""))
 
         if not ultimate_channel_id or not channel_name:
-            logger.warning(f"Invalid channel data: {channel_data}")
+            logger.warning(f"Invalid channel data (missing Id or Name): {channel_data}")
             return None
+
+        # Safely coerce channel_number: missing, null, or non-integer → 0
+        raw_number = channel_data.get("ChannelNumber")
+        try:
+            channel_number = int(raw_number) if raw_number is not None else 0
+        except (ValueError, TypeError):
+            channel_number = 0
+
+        # Safely coerce catchup_hours
+        raw_catchup = channel_data.get("CatchupHours")
+        try:
+            catchup_hours = int(raw_catchup) if raw_catchup is not None else 168
+        except (ValueError, TypeError):
+            catchup_hours = 168
 
         # Check if channel already exists in ultimate_channels
         row = db.fetchone(
-            "SELECT id FROM ultimate_channels WHERE ultimate_provider_id = ? AND ultimate_channel_id = ?",
+            """
+            SELECT id FROM ultimate_channels
+            WHERE ultimate_provider_id = ? AND ultimate_channel_id = ?
+            """,
             (provider_id, ultimate_channel_id),
         )
 
         if row:
             ultimate_channel_db_id = row[0]
-            # Check if mapping exists
+            # Check if mapping already exists — if so, return early
             mapping_row = db.fetchone(
                 "SELECT channel_id FROM ultimate_channel_mappings WHERE ultimate_channel_id = ?",
                 (ultimate_channel_db_id,),
@@ -198,14 +240,14 @@ class UltimateBackendDiscoveryService:
             if mapping_row:
                 return mapping_row[0]
 
-        # Create or get logical channel in EPG Service
-        # Use provider_name:ultimate_channel_id as unique name
+        # Create or get logical channel in EPG Service.
+        # Use provider_name:ultimate_channel_id as unique name.
         logical_name = f"{provider_name}:{ultimate_channel_id}"
 
         channel = self.epg_service.get_or_create_channel(
             name=logical_name,
             display_name=channel_name,
-            icon_url=channel_data.get("LogoUrl"),
+            icon_url=channel_data.get("LogoUrl", channel_data.get("logo_url")),
         )
 
         if not channel:
@@ -215,7 +257,6 @@ class UltimateBackendDiscoveryService:
         # Insert or update ultimate_channels
         if row:
             ultimate_channel_db_id = row[0]
-            # Update existing
             db.execute(
                 """
                 UPDATE ultimate_channels
@@ -225,17 +266,16 @@ class UltimateBackendDiscoveryService:
                 """,
                 (
                     channel_name,
-                    channel_data.get("ChannelNumber", 0),
-                    channel_data.get("LogoUrl"),
-                    channel_data.get("CatchupHours", 168),
-                    channel_data.get("LiveId"),
-                    channel_data.get("StreamUid"),
+                    channel_number,
+                    channel_data.get("LogoUrl", channel_data.get("logo_url")),
+                    catchup_hours,
+                    channel_data.get("LiveId", channel_data.get("live_id")),
+                    channel_data.get("StreamUid", channel_data.get("stream_uid")),
                     datetime.utcnow().isoformat(),
                     ultimate_channel_db_id,
                 ),
             )
         else:
-            # Insert new
             db.execute(
                 """
                 INSERT INTO ultimate_channels (
@@ -247,11 +287,11 @@ class UltimateBackendDiscoveryService:
                     provider_id,
                     ultimate_channel_id,
                     channel_name,
-                    channel_data.get("ChannelNumber", 0),
-                    channel_data.get("LogoUrl"),
-                    channel_data.get("CatchupHours", 168),
-                    channel_data.get("LiveId"),
-                    channel_data.get("StreamUid"),
+                    channel_number,
+                    channel_data.get("LogoUrl", channel_data.get("logo_url")),
+                    catchup_hours,
+                    channel_data.get("LiveId", channel_data.get("live_id")),
+                    channel_data.get("StreamUid", channel_data.get("stream_uid")),
                 ),
             )
             row = db.fetchone("SELECT last_insert_rowid()")
@@ -276,7 +316,8 @@ class UltimateBackendDiscoveryService:
         )
 
         logger.info(
-            f"Mapped channel: {channel_name} (ID: {ultimate_channel_id}) -> logical channel {channel.id}"
+            f"Mapped channel: {channel_name} (ID: {ultimate_channel_id}) "
+            f"-> logical channel {channel.id}"
         )
 
         return channel.id

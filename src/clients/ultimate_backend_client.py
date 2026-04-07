@@ -53,14 +53,23 @@ class UltimateBackendClient(EPGClient):
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create session."""
+        """
+        Get or create an aiohttp session.
+
+        Uses force_close=True on the connector so that connections are never
+        returned to a keep-alive pool. This prevents stale connections being
+        reused when the client is called from a fresh asyncio event loop
+        (which happens when APScheduler jobs use asyncio.run()).
+        """
         if self._session is None or self._session.closed:
             headers = {}
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
+            connector = aiohttp.TCPConnector(force_close=True)
             self._session = aiohttp.ClientSession(
                 headers=headers,
                 timeout=self.timeout,
+                connector=connector,
             )
         return self._session
 
@@ -93,7 +102,7 @@ class UltimateBackendClient(EPGClient):
 
         except ClientResponseError as e:
             if e.status >= 500 and retry_count < self.max_retries:
-                wait_time = 2**retry_count
+                wait_time = 2 ** retry_count
                 logger.warning(f"Server error {e.status}, retrying in {wait_time}s")
                 await asyncio.sleep(wait_time)
                 return await self._request(method, path, params, retry_count + 1)
@@ -101,7 +110,7 @@ class UltimateBackendClient(EPGClient):
 
         except ClientError as e:
             if retry_count < self.max_retries:
-                wait_time = 2**retry_count
+                wait_time = 2 ** retry_count
                 logger.warning(f"Request failed: {e}, retrying in {wait_time}s")
                 await asyncio.sleep(wait_time)
                 return await self._request(method, path, params, retry_count + 1)
@@ -111,6 +120,19 @@ class UltimateBackendClient(EPGClient):
         """
         GET /api/providers
         Returns list of all providers.
+
+        Real response shape:
+            {"providers": [{
+                "name": "magentatv",
+                "label": "MagentaTV",
+                "logo": "...",
+                "country": "DE",
+                "enabled": true,
+                "requires_credentials": false,
+                "auth": {...},
+                "instance_ready": true,
+                ...
+            }]}
         """
         data = await self._request("GET", "/api/providers")
         return data.get("providers", [])
@@ -119,6 +141,27 @@ class UltimateBackendClient(EPGClient):
         """
         GET /api/providers/{provider}/channels
         Returns list of channels for a provider.
+
+        Real response shape:
+            {"provider": "magenta2",
+             "country": "de",
+             "catchup_window_hours": 4,
+             "channels": [{
+                "Name": "Moviedome",
+                "Id": "Zf4PyxjqUvbe",   ← string, NOT numeric
+                "Provider": "magenta2",
+                "LogoUrl": "...",
+                "Quality": "HD",
+                "ChannelNumber": 148,
+                "CatchupHours": 4,
+                "Country": "de",
+                "Language": "de",
+                ...
+             }]}
+
+        NOTE: Channel IDs are opaque strings (e.g. "Zf4PyxjqUvbe"), not
+        integers. UltimateBackendChannel.from_api_response() already stores
+        them as str, which is correct.
         """
         data = await self._request("GET", f"/api/providers/{provider_name}/channels")
         return data.get("channels", [])
@@ -134,14 +177,38 @@ class UltimateBackendClient(EPGClient):
         GET /api/providers/{provider}/channels/{channel_id}/epg
         Returns EPG programs for a channel within time range.
 
+        Real response shape:
+            {"provider": "movetv",
+             "channel_id": "211458",
+             "start_time": "...",
+             "end_time": "...",
+             "count": 25,
+             "programs": [{
+                "epg_id": 2045056482,
+                "schedule_id": "211458:2045056482",
+                "title": "...",
+                "start": "2026-04-07T11:00:00+00:00",  ← tz-aware ISO 8601
+                "end":   "2026-04-07T12:09:00+00:00",
+                "genre": "MAGAZIN",
+                "categories": ["Ljudi"],
+                "category_ids": [300],
+                "rating": 0,        ← 0 means "no rating", not rated-0
+                "cast": [],
+                "images": {"background": "..."},
+                ...
+             }]}
+
         Args:
             provider_name: Provider name (e.g., "movetv")
-            channel_id: Channel ID (e.g., "211458")
-            start_time: UTC datetime
-            end_time: UTC datetime (max 24h recommended)
+            channel_id: Channel ID as returned by get_channels() — may be a
+                        string token like "Zf4PyxjqUvbe" or a numeric string
+                        like "211458" depending on the provider.
+            start_time: UTC datetime (tz-naive)
+            end_time: UTC datetime (tz-naive); max 24 h recommended per call
 
         Returns:
-            List of program dictionaries
+            List of raw program dictionaries (parsed by
+            UltimateBackendProgram.from_api_response).
         """
         params = {
             "start": int(start_time.timestamp()),
@@ -158,10 +225,10 @@ class UltimateBackendClient(EPGClient):
 
     async def has_epg(self, provider_name: str) -> bool:
         """
-        Check if provider has EPG by testing /channels endpoint.
+        Check if provider has EPG by probing the /channels endpoint.
 
         Returns:
-            True if /channels endpoint returns 200, False otherwise
+            True if the endpoint returns 200, False on 404.
         """
         try:
             await self._request("GET", f"/api/providers/{provider_name}/channels")
@@ -173,6 +240,13 @@ class UltimateBackendClient(EPGClient):
             return False
 
     async def close(self):
-        """Close the session."""
+        """
+        Close the aiohttp session.
+
+        IMPORTANT: always call this at the end of a job run (inside the same
+        coroutine passed to asyncio.run()) so that the next job starts with a
+        clean session on a fresh event loop.
+        """
         if self._session and not self._session.closed:
             await self._session.close()
+            self._session = None
