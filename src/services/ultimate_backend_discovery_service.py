@@ -241,18 +241,19 @@ class UltimateBackendDiscoveryService:
                 return mapping_row[0]
 
         # Create or get logical channel in EPG Service.
-        # Use provider_name:ultimate_channel_id as unique name.
-        logical_name = f"{provider_name}:{ultimate_channel_id}"
-
-        channel = self.epg_service.get_or_create_channel(
-            name=logical_name,
-            display_name=channel_name,
-            icon_url=channel_data.get("LogoUrl", channel_data.get("logo_url")),
-        )
+        # First check if this provider channel ID is already known via an alias
+        # (e.g. registered by the XMLTV importer). If so, reuse that logical channel
+        # instead of creating a new one.
+        channel = self.epg_service.get_channel_by_alias(ultimate_channel_id)
 
         if not channel:
-            logger.error(f"Failed to create logical channel for {logical_name}")
-            return None
+            # No alias match — fall back to name-based lookup / creation.
+            logical_name = f"{provider_name}:{ultimate_channel_id}"
+            channel = self.epg_service.get_or_create_channel(
+                name=logical_name,
+                display_name=channel_name,
+                icon_url=channel_data.get("LogoUrl", channel_data.get("logo_url")),
+            )
 
         # Insert or update ultimate_channels
         if row:
