@@ -887,10 +887,10 @@ def trigger_ultimate_import():
         return jsonify({"error": "Scheduler not initialized"}), 500
 
     try:
-        scheduler.trigger_ultimate_import_now()
+        scheduler.trigger_ultimate_incremental_now()
         return jsonify(
             {
-                "message": "Ultimate Backend import triggered",
+                "message": "Ultimate Backend incremental import triggered",
                 "next_scheduled": (
                     scheduler.get_next_run_time("daily_ultimate_import").isoformat()
                     if scheduler.get_next_run_time("daily_ultimate_import")
@@ -900,6 +900,31 @@ def trigger_ultimate_import():
         )
     except Exception as e:
         logger.error(f"Error triggering import: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/ultimate/import/full", methods=["POST"])
+def trigger_ultimate_full_import():
+    """
+    Manually trigger a full Ultimate Backend import (bootstrap / re-sync).
+
+    Resets all channel cursors and re-fetches past_days of history plus
+    api_max_future_days of future data.  Runs in a daemon thread so the
+    request returns immediately.
+    """
+    global scheduler
+
+    if not scheduler or not scheduler.ultimate_import_service:
+        return jsonify({"error": "Ultimate Backend not initialized"}), 500
+
+    try:
+        scheduler.trigger_ultimate_full_now()
+        return jsonify({
+            "message": "Full Ultimate Backend import triggered",
+            "type": "full_import",
+        })
+    except Exception as e:
+        logger.error(f"Error triggering full import: {e}")
         return jsonify({"error": str(e)}), 500
 
 
