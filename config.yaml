@@ -25,7 +25,7 @@ ultimate_backend:
     base_url: "http://your-ultimate-backend:7777"
     api_key: "your-api-key-if-needed"
   import:
-    future_days: 7
+    future_days: 3
     past_days: 7
     chunk_hours: 24
     max_requests_per_second: 5

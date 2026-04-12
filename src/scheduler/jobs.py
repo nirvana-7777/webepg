@@ -5,6 +5,7 @@ Background job scheduler for EPG service.
 import asyncio
 import logging
 from datetime import datetime
+from threading import Thread
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -24,26 +25,21 @@ class JobScheduler:
     """Manages background jobs for imports and cleanup."""
 
     def __init__(self, config: dict):
-        """
-        Initialize job scheduler.
-
-        Args:
-            config: Configuration dictionary with scheduler settings
-        """
         self.config = config
         self.scheduler = BackgroundScheduler(timezone=config.get("timezone", "UTC"))
         self.import_service = ImportService()
         self.cleanup_service = CleanupService()
 
-        # Initialize Ultimate Backend components if enabled
         self.ultimate_enabled = config.get("ultimate_backend", {}).get("enabled", False)
         self.ultimate_client = None
         self.ultimate_discovery_service = None
+        self._ultimate_import_service: Optional[UltimateBackendImportService] = None
+
         if self.ultimate_enabled:
             self._init_ultimate_backend(config)
 
     def _init_ultimate_backend(self, config: dict):
-        """Initialize Ultimate Backend components."""
+        """Initialize Ultimate Backend client, discovery, and import service."""
         from ..clients.ultimate_backend_client import UltimateBackendClient
 
         ub_config = config.get("ultimate_backend", {})
@@ -61,101 +57,123 @@ class JobScheduler:
         self.ultimate_discovery_service = UltimateBackendDiscoveryService(
             self.ultimate_client
         )
+
+        # api_max_future_days reflects the hard cap of the Ultimate Backend API
+        # (currently 3 days).  Setting future_days higher than this is harmless
+        # but wastes requests; setting it lower is fine for shorter windows.
         self._ultimate_import_service = UltimateBackendImportService(
             client=self.ultimate_client,
-            future_days=import_config.get("future_days", 7),
+            future_days=import_config.get("future_days", 3),
             past_days=import_config.get("past_days", 7),
             chunk_hours=import_config.get("chunk_hours", 24),
             max_concurrent_channels=import_config.get("max_concurrent_channels", 3),
+            api_max_future_days=import_config.get("api_max_future_days", 3),
         )
 
         logger.info("Ultimate Backend integration initialized")
 
-    def _run_import_job(self):
-        """Execute import job for all XMLTV providers."""
-        logger.info("Starting scheduled XMLTV import job")
+    # ------------------------------------------------------------------
+    # XMLTV jobs
+    # ------------------------------------------------------------------
 
+    def _run_import_job(self):
+        """Execute daily XMLTV import for all providers."""
+        logger.info("Starting scheduled XMLTV import job")
         try:
             logs = self.import_service.import_all_providers()
-
             success_count = sum(1 for log in logs if log.status == "success")
             failed_count = len(logs) - success_count
-
             logger.info(
-                f"XMLTV import job completed: {success_count} succeeded, "
-                f"{failed_count} failed"
+                f"XMLTV import completed: {success_count} succeeded, {failed_count} failed"
             )
-
-            # Run cleanup after imports
             self._run_cleanup_job()
-
         except Exception as e:
             logger.error(f"XMLTV import job failed: {e}", exc_info=True)
 
     def _run_cleanup_job(self):
-        """Execute cleanup job."""
+        """Delete programs older than the configured retention window."""
         logger.info("Starting scheduled cleanup job")
-
         try:
             retention_days = self.config.get("retention_days", 7)
             deleted_count = self.cleanup_service.cleanup_old_programs(retention_days)
-
-            logger.info(f"Cleanup job completed: {deleted_count} programs deleted")
-
+            logger.info(f"Cleanup completed: {deleted_count} programs deleted")
         except Exception as e:
             logger.error(f"Cleanup job failed: {e}", exc_info=True)
 
+    # ------------------------------------------------------------------
+    # Ultimate Backend jobs
+    # ------------------------------------------------------------------
+
     def _run_ultimate_discovery_job(self):
-        """Execute Ultimate Backend discovery job."""
+        """Discover providers and channels from Ultimate Backend."""
         if not self.ultimate_enabled:
             return
-
         logger.info("Starting Ultimate Backend discovery job")
-
         try:
-            # Run async discovery
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             stats = loop.run_until_complete(
                 self.ultimate_discovery_service.discover_all()
             )
             loop.close()
-
             logger.info(f"Ultimate Backend discovery completed: {stats}")
         except Exception as e:
             logger.error(f"Ultimate Backend discovery job failed: {e}", exc_info=True)
 
-    def _run_ultimate_import_job(self):
-        """Execute Ultimate Backend incremental import job."""
+    def _run_ultimate_incremental_job(self):
+        """
+        Daily incremental import — only fetches data beyond the stored cursor.
+
+        Each channel advances its last_imported_until forward by one day's
+        worth of chunks, so on a healthy daily schedule this typically makes
+        one API call per channel.
+        """
         if not self.ultimate_enabled:
             return
-
         logger.info("Starting Ultimate Backend incremental import job")
-
         try:
-            # Run async import
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             stats = loop.run_until_complete(
-                self.ultimate_import_service.incremental_import_all()
+                self._ultimate_import_service.incremental_import_all()
             )
             loop.close()
-
-            logger.info(f"Ultimate Backend import completed: {stats}")
-
-            # Run cleanup after import
+            logger.info(f"Incremental import completed: {stats}")
             self._run_cleanup_job()
-
         except Exception as e:
-            logger.error(f"Ultimate Backend import job failed: {e}", exc_info=True)
+            logger.error(f"Incremental import job failed: {e}", exc_info=True)
+
+    def _run_ultimate_full_job(self):
+        """
+        Full (bootstrap) import — resets all channel cursors and re-fetches
+        everything within past_days history and api_max_future_days future.
+
+        Runs in a daemon thread so it does not block the scheduler.
+        """
+        if not self.ultimate_enabled:
+            return
+        logger.info("Starting Ultimate Backend full import job")
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            stats = loop.run_until_complete(
+                self._ultimate_import_service.full_import_all()
+            )
+            loop.close()
+            logger.info(f"Full import completed: {stats}")
+        except Exception as e:
+            logger.error(f"Full import job failed: {e}", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Scheduler lifecycle
+    # ------------------------------------------------------------------
 
     def start(self):
-        """Start the scheduler with configured jobs."""
-        # Parse import time (e.g., "03:00")
+        """Register all jobs and start the APScheduler background scheduler."""
         import_time = self.config.get("import_time", "03:00")
         hour, minute = map(int, import_time.split(":"))
 
-        # Schedule daily XMLTV import job
+        # Daily XMLTV import.
         self.scheduler.add_job(
             self._run_import_job,
             trigger=CronTrigger(hour=hour, minute=minute),
@@ -165,18 +183,14 @@ class JobScheduler:
         )
         logger.info(f"Scheduled daily XMLTV import at {import_time}")
 
-        # Schedule Ultimate Backend jobs if enabled
         if self.ultimate_enabled:
             ub_config = self.config.get("ultimate_backend", {})
             discovery_config = ub_config.get("discovery", {})
 
-            # Discovery job (weekly by default)
+            # Weekly discovery (default: Sunday at 02:00).
             if discovery_config.get("enabled", True):
-                discovery_day = discovery_config.get(
-                    "day", 6
-                )  # 6 = Sunday (Monday=0, Sunday=6)
+                discovery_day = discovery_config.get("day", 6)   # Monday=0, Sunday=6
                 discovery_hour = discovery_config.get("hour", 2)
-
                 self.scheduler.add_job(
                     self._run_ultimate_discovery_job,
                     trigger=CronTrigger(
@@ -187,53 +201,51 @@ class JobScheduler:
                     replace_existing=True,
                 )
                 logger.info(
-                    f"Scheduled weekly Ultimate Backend discovery on day {discovery_day} at {discovery_hour}:00"
+                    f"Scheduled weekly Ultimate Backend discovery: "
+                    f"day={discovery_day} at {discovery_hour}:00"
                 )
 
-            # Incremental import job (daily, 30 minutes after XMLTV import)
-            import_minute = minute + 30
-            if import_minute >= 60:
-                import_minute = import_minute - 60
-                import_hour = hour + 1
-            else:
-                import_hour = hour
-
+            # Daily incremental import, 30 minutes after the XMLTV job.
+            inc_minute = minute + 30
+            inc_hour = hour + (1 if inc_minute >= 60 else 0)
+            inc_minute = inc_minute % 60
             self.scheduler.add_job(
-                self._run_ultimate_import_job,
-                trigger=CronTrigger(hour=import_hour, minute=import_minute),
+                self._run_ultimate_incremental_job,
+                trigger=CronTrigger(hour=inc_hour, minute=inc_minute),
                 id="daily_ultimate_import",
-                name="Daily Ultimate Backend Import",
+                name="Daily Ultimate Backend Incremental Import",
                 replace_existing=True,
             )
             logger.info(
-                f"Scheduled daily Ultimate Backend import at {import_hour}:{import_minute:02d}"
+                f"Scheduled daily Ultimate Backend incremental import "
+                f"at {inc_hour}:{inc_minute:02d}"
             )
 
-        # Start scheduler
         self.scheduler.start()
         logger.info("Job scheduler started")
 
     def stop(self):
-        """Stop the scheduler."""
+        """Shut down the scheduler and close the Ultimate Backend HTTP client."""
         if self.scheduler.running:
             self.scheduler.shutdown()
             logger.info("Job scheduler stopped")
 
-            # Close Ultimate Backend client if exists
-            if self.ultimate_client:
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(self.ultimate_client.close())
-                    loop.close()
-                except Exception as e:
-                    logger.warning(f"Error closing Ultimate Backend client: {e}")
+        if self.ultimate_client:
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.ultimate_client.close())
+                loop.close()
+            except Exception as e:
+                logger.warning(f"Error closing Ultimate Backend client: {e}")
+
+    # ------------------------------------------------------------------
+    # Manual triggers
+    # ------------------------------------------------------------------
 
     def trigger_import_now(self):
-        """Manually trigger XMLTV import job immediately."""
-        logger.info("Manually triggering XMLTV import job")
-
-        # Run in a separate job to avoid blocking
+        """Immediately queue a XMLTV import outside the daily schedule."""
+        logger.info("Manually triggering XMLTV import")
         self.scheduler.add_job(
             self._run_import_job,
             id="manual_import",
@@ -241,26 +253,39 @@ class JobScheduler:
             replace_existing=True,
         )
 
-    def trigger_ultimate_import_now(self):
-        """Manually trigger Ultimate Backend import immediately."""
+    def trigger_ultimate_incremental_now(self):
+        """Immediately queue an incremental Ultimate Backend import."""
         if not self.ultimate_enabled:
-            logger.warning("Ultimate Backend not enabled, cannot trigger import")
+            logger.warning("Ultimate Backend not enabled")
             return
-
-        logger.info("Manually triggering Ultimate Backend import")
+        logger.info("Manually triggering Ultimate Backend incremental import")
         self.scheduler.add_job(
-            self._run_ultimate_import_job,
-            id="manual_ultimate_import",
-            name="Manual Ultimate Backend Import",
+            self._run_ultimate_incremental_job,
+            id="manual_ultimate_incremental_import",
+            name="Manual Ultimate Backend Incremental Import",
             replace_existing=True,
         )
 
-    def trigger_ultimate_discovery_now(self):
-        """Manually trigger Ultimate Backend discovery immediately."""
-        if not self.ultimate_enabled:
-            logger.warning("Ultimate Backend not enabled, cannot trigger discovery")
-            return
+    def trigger_ultimate_full_now(self):
+        """
+        Immediately start a full Ultimate Backend import in a daemon thread.
 
+        A full import can take a while (one API call per channel per day chunk),
+        so we run it in a background thread rather than blocking the scheduler.
+        The import service itself is async-safe: it resets its semaphore at the
+        top of full_import_all() before touching the event loop.
+        """
+        if not self.ultimate_enabled:
+            logger.warning("Ultimate Backend not enabled")
+            return
+        logger.info("Manually triggering Ultimate Backend full import")
+        Thread(target=self._run_ultimate_full_job, daemon=True).start()
+
+    def trigger_ultimate_discovery_now(self):
+        """Immediately queue an Ultimate Backend discovery run."""
+        if not self.ultimate_enabled:
+            logger.warning("Ultimate Backend not enabled")
+            return
         logger.info("Manually triggering Ultimate Backend discovery")
         self.scheduler.add_job(
             self._run_ultimate_discovery_job,
@@ -269,25 +294,15 @@ class JobScheduler:
             replace_existing=True,
         )
 
+    # ------------------------------------------------------------------
+    # Introspection
+    # ------------------------------------------------------------------
+
     def get_next_run_time(self, job_id: str = "daily_import") -> Optional[datetime]:
-        """
-        Get next scheduled run time for a job.
-
-        Args:
-            job_id: Job identifier
-
-        Returns:
-            Next run datetime or None if job not found
-        """
+        """Return the next scheduled run time for a given job, or None."""
         job = self.scheduler.get_job(job_id)
-        if job:
-            return job.next_run_time
-        return None
+        return job.next_run_time if job else None
 
     @property
-    def ultimate_import_service(self):
-        return (
-            self._ultimate_import_service
-            if hasattr(self, "_ultimate_import_service")
-            else None
-        )
+    def ultimate_import_service(self) -> Optional[UltimateBackendImportService]:
+        return self._ultimate_import_service

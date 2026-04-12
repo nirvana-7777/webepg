@@ -10,8 +10,6 @@ from flask import Blueprint, jsonify, request
 from ..scheduler.jobs import JobScheduler
 from ..services.epg_service import EPGService
 from ..services.provider_service import ProviderService
-from ..services.ultimate_backend_import_service import \
-    UltimateBackendImportService
 
 logger = logging.getLogger(__name__)
 
@@ -451,6 +449,55 @@ def remove_duplicates():
 
     except Exception as e:
         logger.error(f"Error removing duplicates: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/ultimate/import/full", methods=["POST"])
+def trigger_ultimate_full_import():
+    """
+    Manually trigger a full Ultimate Backend import (bootstrap / re-sync).
+
+    Resets all channel cursors and re-fetches past_days of history plus
+    api_max_future_days of future data.  Runs in a daemon thread so the
+    request returns immediately.
+    """
+    global scheduler
+
+    if not scheduler or not scheduler.ultimate_import_service:
+        return jsonify({"error": "Ultimate Backend not initialized"}), 500
+
+    try:
+        scheduler.trigger_ultimate_full_now()
+        return jsonify({
+            "message": "Full Ultimate Backend import triggered",
+            "type": "full_import",
+        })
+    except Exception as e:
+        logger.error(f"Error triggering full import: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/ultimate/import/incremental", methods=["POST"])
+def trigger_ultimate_incremental_import():
+    """
+    Manually trigger an incremental Ultimate Backend import.
+
+    Each channel advances from its last_imported_until cursor; channels with
+    no prior state fall back to a full historical fetch.
+    """
+    global scheduler
+
+    if not scheduler or not scheduler.ultimate_import_service:
+        return jsonify({"error": "Ultimate Backend not initialized"}), 500
+
+    try:
+        scheduler.trigger_ultimate_incremental_now()
+        return jsonify({
+            "message": "Incremental Ultimate Backend import triggered",
+            "type": "incremental_import",
+        })
+    except Exception as e:
+        logger.error(f"Error triggering incremental import: {e}")
         return jsonify({"error": str(e)}), 500
 
 
