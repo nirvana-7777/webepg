@@ -3,7 +3,7 @@
   <component name="ChangeListManager">
     <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Read EPG from backend">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/api/handlers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/handlers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -108,14 +108,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00001" summary="Initial">
-      <option name="closed" value="true" />
-      <created>1766786401756</created>
-      <option name="number" value="00001" />
-      <option name="presentableId" value="LOCAL-00001" />
-      <option name="project" value="LOCAL" />
-      <updated>1766786401756</updated>
     </task>
     <task id="LOCAL-00002" summary="Initial">
       <option name="closed" value="true" />
@@ -501,7 +493,15 @@
       <option name="project" value="LOCAL" />
       <updated>1776004511023</updated>
     </task>
-    <option name="localTasksCounter" value="50" />
+    <task id="LOCAL-00050" summary="Read EPG from backend">
+      <option name="closed" value="true" />
+      <created>1776011000609</created>
+      <option name="number" value="00050" />
+      <option name="presentableId" value="LOCAL-00050" />
+      <option name="project" value="LOCAL" />
+      <updated>1776011000612</updated>
+    </task>
+    <option name="localTasksCounter" value="51" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

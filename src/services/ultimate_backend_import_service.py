@@ -451,9 +451,9 @@ class UltimateBackendImportService:
 
     @staticmethod
     def _upsert_program(
-        program: UltimateBackendProgram,
-        logical_channel_id: int,
-        provider_name: str,
+            program: UltimateBackendProgram,
+            logical_channel_id: int,
+            provider_name: str,
     ) -> str:
         """
         Insert or update a program keyed on ultimate_epg_id.
@@ -479,12 +479,13 @@ class UltimateBackendImportService:
             "SELECT id FROM providers WHERE name = ?", (provider_name,)
         )
         if not provider_row:
+            # FIXED: Removed 'display_name' column - it doesn't exist in the schema
             db.execute(
                 """
-                INSERT INTO providers (name, display_name, source_type)
-                VALUES (?, ?, 'ultimate_backend')
+                INSERT INTO providers (name)
+                VALUES (?)
                 """,
-                (provider_name, provider_name),
+                (provider_name,),
             )
             provider_row = db.fetchone("SELECT last_insert_rowid()")
 
