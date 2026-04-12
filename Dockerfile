@@ -20,6 +20,7 @@ COPY config.yaml .
 # Create data directory for database
 RUN mkdir -p /data
 
+ENV PYTHONDONTWRITEBYTECODE=1
 # Set Python path
 ENV PYTHONPATH=/app
 ENV EPG_DB_PATH=/data/epg.db
