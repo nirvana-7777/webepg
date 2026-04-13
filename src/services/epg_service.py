@@ -3,11 +3,12 @@ EPG service for querying program data.
 """
 
 import logging
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, Dict, Tuple
 
 from ..database.connection import get_db
-from ..database.models import Channel, ChannelAlias, Program
+from ..database.models import Channel, ChannelAlias, Program, Provider
+from ..services.provider_service import ProviderService
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +16,16 @@ logger = logging.getLogger(__name__)
 class EPGService:
     """Service for EPG data queries."""
 
-    def get_programs(
-        self, channel_id: int, start: datetime, end: datetime
-    ) -> List[Program]:
+    def __init__(self):
+        self.provider_service = ProviderService()
+
+    @staticmethod
+    def _now_utc() -> datetime:
+        """Get current UTC datetime as timezone-aware."""
+        return datetime.now(timezone.utc)
+
+    @staticmethod
+    def get_programs(channel_id: int, start: datetime, end: datetime) -> List[Program]:
         """
         Get programs for a channel within a time range.
 
@@ -62,7 +70,8 @@ class EPGService:
             logger.error(f"Error fetching programs: {e}")
             raise
 
-    def get_channel(self, channel_id: int) -> Optional[Channel]:
+    @staticmethod
+    def get_channel(channel_id: int) -> Optional[Channel]:
         """
         Get channel by ID.
 
@@ -89,7 +98,8 @@ class EPGService:
             logger.error(f"Error fetching channel {channel_id}: {e}")
             raise
 
-    def get_channel_by_name(self, name: str) -> Optional[Channel]:
+    @staticmethod
+    def get_channel_by_name(name: str) -> Optional[Channel]:
         """
         Get channel by name.
 
@@ -116,7 +126,8 @@ class EPGService:
             logger.error(f"Error fetching channel by name '{name}': {e}")
             raise
 
-    def list_channels(self) -> List[Channel]:
+    @staticmethod
+    def list_channels() -> List[Channel]:
         """
         List all channels.
 
@@ -223,10 +234,10 @@ class EPGService:
             return channel
 
         # Try alias
-        channel = self.get_channel_by_alias(identifier)
-        return channel
+        return self.get_channel_by_alias(identifier)
 
-    def list_all_aliases(self):
+    @staticmethod
+    def list_all_aliases() -> List[ChannelAlias]:
         """List all aliases across all channels."""
         db = get_db()
 
@@ -264,9 +275,13 @@ class EPGService:
             logger.error(f"Error listing all aliases: {e}")
             raise
 
+    @staticmethod
     def list_all_aliases_paginated(
-        self, page=1, per_page=100, alias_type=None, channel_id=None
-    ):
+        page: int = 1,
+        per_page: int = 100,
+        alias_type: Optional[str] = None,
+        channel_id: Optional[int] = None,
+    ) -> Tuple[List[ChannelAlias], int]:
         """List all aliases with pagination and filtering."""
         db = get_db()
         offset = (page - 1) * per_page
@@ -325,11 +340,12 @@ class EPGService:
 
         return aliases, total
 
-    def get_alias_statistics(self):
+    @staticmethod
+    def get_alias_statistics() -> Dict:
         """Get statistics about aliases."""
         db = get_db()
 
-        stats = {}
+        stats: Dict = {}
 
         try:
             # Get basic counts
@@ -392,7 +408,8 @@ class EPGService:
             logger.error(f"Error getting alias statistics: {e}")
             raise
 
-    def get_channel_by_alias(self, alias: str) -> Optional[Channel]:
+    @staticmethod
+    def get_channel_by_alias(alias: str) -> Optional[Channel]:
         """
         Get channel by alias.
 
@@ -422,7 +439,7 @@ class EPGService:
 
     def create_channel_alias(
         self, channel_id: int, alias: str, alias_type: Optional[str] = None
-    ) -> "ChannelAlias":
+    ) -> ChannelAlias:
         """
         Create an alias for a channel.
 
@@ -434,7 +451,6 @@ class EPGService:
         Returns:
             Created ChannelAlias object
         """
-
         db = get_db()
 
         sql = """
@@ -457,7 +473,8 @@ class EPGService:
             )
             raise
 
-    def get_channel_alias(self, alias_id: int) -> Optional["ChannelAlias"]:
+    @staticmethod
+    def get_channel_alias(alias_id: int) -> Optional[ChannelAlias]:
         """Get channel alias by ID."""
         db = get_db()
 
@@ -476,7 +493,8 @@ class EPGService:
             logger.error(f"Error fetching alias {alias_id}: {e}")
             raise
 
-    def list_channel_aliases(self, channel_id: int) -> List["ChannelAlias"]:
+    @staticmethod
+    def list_channel_aliases(channel_id: int) -> List[ChannelAlias]:
         """
         List all aliases for a channel.
 
@@ -506,7 +524,8 @@ class EPGService:
             logger.error(f"Error listing aliases for channel {channel_id}: {e}")
             raise
 
-    def delete_channel_alias(self, alias_id: int) -> bool:
+    @staticmethod
+    def delete_channel_alias(alias_id: int) -> bool:
         """
         Delete a channel alias.
 
@@ -534,3 +553,197 @@ class EPGService:
         except Exception as e:
             logger.error(f"Error deleting alias {alias_id}: {e}")
             raise
+
+    def get_provider_by_id_or_name(self, identifier: str) -> Optional[Provider]:
+        """
+        Get provider by ID or name.
+
+        Args:
+            identifier: Provider ID (numeric) or name
+
+        Returns:
+            Provider object or None if not found
+        """
+        # Try numeric ID first
+        if identifier.isdigit():
+            provider = self.provider_service.get_provider(int(identifier))
+            if provider:
+                return provider
+
+        # Try name (case-insensitive)
+        providers = self.provider_service.list_providers()
+        for provider in providers:
+            if provider.name.lower() == identifier.lower():
+                return provider
+
+        return None
+
+    def get_provider_channels(self, provider_id: int) -> List[Channel]:
+        """
+        Get all channels for a provider.
+
+        Args:
+            provider_id: Provider ID
+
+        Returns:
+            List of Channel objects
+        """
+        db = get_db()
+
+        # Get provider to determine source type
+        provider = self.provider_service.get_provider(provider_id)
+        if not provider:
+            return []
+
+        source_type: str = getattr(provider, "source_type", "xmltv")
+
+        if source_type == "xmltv":
+            # For XMLTV providers, use channel_mappings
+            sql = """
+                SELECT c.id, c.name, c.display_name, c.icon_url, c.created_at
+                FROM channels c
+                JOIN channel_mappings cm ON c.id = cm.channel_id
+                WHERE cm.provider_id = ?
+                ORDER BY c.display_name
+            """
+            rows = db.fetchall(sql, (provider_id,))
+        else:
+            # For Ultimate Backend providers, use ultimate_channel_mappings
+            sql = """
+                SELECT c.id, c.name, c.display_name, c.icon_url, c.created_at
+                FROM channels c
+                JOIN ultimate_channel_mappings ucm ON c.id = ucm.channel_id
+                JOIN ultimate_channels uc ON ucm.ultimate_channel_id = uc.id
+                JOIN ultimate_providers up ON uc.ultimate_provider_id = up.id
+                WHERE up.provider_name = ?
+                ORDER BY c.display_name
+            """
+            rows = db.fetchall(sql, (provider.name,))
+
+        return [Channel.from_db_row(row) for row in rows]
+
+    def get_provider_programs_for_export(
+        self,
+        provider_id: int,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Get all channels and programs for a provider for XMLTV export.
+
+        Args:
+            provider_id: Provider ID
+            start_time: Optional start time filter (default: 7 days ago)
+            end_time: Optional end time filter (default: 7 days from now)
+
+        Returns:
+            Tuple of (channels list, programs list)
+        """
+        db = get_db()
+
+        now = self._now_utc()
+        today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Set default time range if not specified
+        if start_time is None:
+            start_time = today_midnight - timedelta(days=7)
+        if end_time is None:
+            end_time = today_midnight + timedelta(days=7)
+
+        # Get provider
+        provider = self.provider_service.get_provider(provider_id)
+        if not provider:
+            return [], []
+
+        source_type: str = getattr(provider, "source_type", "xmltv")
+
+        # Get channels for this provider
+        channels = self.get_provider_channels(provider_id)
+        channel_ids = [c.id for c in channels]
+
+        if not channel_ids:
+            return [], []
+
+        # Build channel ID to identifier mapping for XMLTV
+        channel_identifier_map: Dict[int, str] = {}
+
+        if source_type == "xmltv":
+            # Get provider_channel_id for each channel
+            for channel in channels:
+                row = db.fetchone(
+                    """
+                    SELECT provider_channel_id 
+                    FROM channel_mappings 
+                    WHERE provider_id = ? AND channel_id = ?
+                    """,
+                    (provider_id, channel.id),
+                )
+                channel_identifier_map[channel.id] = row[0] if row else str(channel.id)
+        else:
+            # For Ultimate Backend, get ultimate_channel_id
+            for channel in channels:
+                row = db.fetchone(
+                    """
+                    SELECT uc.ultimate_channel_id
+                    FROM ultimate_channels uc
+                    JOIN ultimate_providers up ON uc.ultimate_provider_id = up.id
+                    JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
+                    WHERE up.provider_name = ? AND ucm.channel_id = ?
+                    """,
+                    (provider.name, channel.id),
+                )
+                channel_identifier_map[channel.id] = row[0] if row else str(channel.id)
+
+        # Get programs for these channels
+        placeholders = ",".join(["?"] * len(channel_ids))
+
+        sql = f"""
+            SELECT 
+                p.id, p.channel_id, p.provider_id, p.start_time, p.end_time,
+                p.title, p.subtitle, p.description, p.category, p.episode_num,
+                p.rating, p.actors, p.directors, p.presenters, p.writers,
+                p.producers, p.icon_url, p.production_year, p.country,
+                p.ultimate_epg_id, p.schedule_id, p.genre_description, p.genre_dvb,
+                p.categories, p.season_num, p.director, p.producer, p.year,
+                p.star_rating, p.thumbnail_url, p.original_title, p.epg_flags,
+                p.has_episode_info, p.created_at
+            FROM programs p
+            WHERE p.channel_id IN ({placeholders})
+              AND p.start_time < ?
+              AND p.end_time > ?
+            ORDER BY p.channel_id, p.start_time
+        """
+
+        params = channel_ids + [end_time.isoformat(), start_time.isoformat()]
+        rows = db.fetchall(sql, tuple(params))
+
+        # Convert to dict and add channel_identifier
+        programs = []
+        for row in rows:
+            program_dict = dict(row)
+            program_dict["channel_identifier"] = channel_identifier_map.get(
+                program_dict["channel_id"], str(program_dict["channel_id"])
+            )
+            # Parse datetime objects
+            if program_dict.get("start_time"):
+                program_dict["start_time"] = datetime.fromisoformat(
+                    program_dict["start_time"]
+                )
+            if program_dict.get("end_time"):
+                program_dict["end_time"] = datetime.fromisoformat(
+                    program_dict["end_time"]
+                )
+            programs.append(program_dict)
+
+        # Convert channels to dict format for serializer
+        channel_dicts = [
+            {
+                "id": channel_identifier_map.get(channel.id, str(channel.id)),
+                "name": channel.name,
+                "display_name": channel.display_name,
+                "icon_url": channel.icon_url,
+            }
+            for channel in channels
+        ]
+
+        return channel_dicts, programs

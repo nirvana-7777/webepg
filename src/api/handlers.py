@@ -3,9 +3,11 @@ HTTP request handlers for EPG API.
 """
 
 import logging
-
+from datetime import datetime, timezone, timedelta
 from dateutil.parser import isoparse
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response
+from xml.etree.ElementTree import Element, tostring
+from xml.dom import minidom
 
 from ..scheduler.jobs import JobScheduler
 from ..services.epg_service import EPGService
@@ -17,9 +19,9 @@ logger = logging.getLogger(__name__)
 api_bp = Blueprint("api", __name__, url_prefix="/api/v1")
 
 # Service instances (will be injected)
-epg_service = None
-provider_service = None
-scheduler = None
+epg_service: EPGService | None = None
+provider_service: ProviderService | None = None
+scheduler: JobScheduler | None = None
 
 
 def init_handlers(
@@ -44,6 +46,7 @@ def health_check():
 def list_channels():
     """List all channels."""
     try:
+        assert epg_service is not None, "EPG service not initialized"
         channels = epg_service.list_channels()
         return jsonify([channel.to_dict() for channel in channels])
     except Exception as e:
@@ -55,6 +58,7 @@ def list_channels():
 def get_channel(channel_identifier):
     """Get channel by ID, name, or alias."""
     try:
+        assert epg_service is not None, "EPG service not initialized"
         channel = epg_service.get_channel_by_id_or_alias(channel_identifier)
         if not channel:
             return jsonify({"error": "Channel not found"}), 404
@@ -69,6 +73,8 @@ def get_channel(channel_identifier):
 def get_channel_programs(channel_identifier):
     """Get programs for a channel within a time range."""
     try:
+        assert epg_service is not None, "EPG service not initialized"
+
         # Parse query parameters
         start_str = request.args.get("start")
         end_str = request.args.get("end")
@@ -108,6 +114,7 @@ def get_channel_programs(channel_identifier):
 def list_providers():
     """List all providers."""
     try:
+        assert provider_service is not None, "Provider service not initialized"
         providers = provider_service.list_providers()
         return jsonify([provider.to_dict() for provider in providers])
     except Exception as e:
@@ -119,6 +126,7 @@ def list_providers():
 def get_provider(provider_id):
     """Get provider by ID."""
     try:
+        assert provider_service is not None, "Provider service not initialized"
         provider = provider_service.get_provider(provider_id)
         if not provider:
             return jsonify({"error": "Provider not found"}), 404
@@ -133,6 +141,7 @@ def get_provider(provider_id):
 def create_provider():
     """Create a new provider."""
     try:
+        assert provider_service is not None, "Provider service not initialized"
         data = request.get_json()
 
         if not data:
@@ -157,6 +166,7 @@ def create_provider():
 def update_provider(provider_id):
     """Update an existing provider."""
     try:
+        assert provider_service is not None, "Provider service not initialized"
         data = request.get_json()
 
         if not data:
@@ -186,6 +196,7 @@ def update_provider(provider_id):
 def delete_provider(provider_id):
     """Delete a provider."""
     try:
+        assert provider_service is not None, "Provider service not initialized"
         deleted = provider_service.delete_provider(provider_id)
 
         if not deleted:
@@ -202,15 +213,15 @@ def delete_provider(provider_id):
 def trigger_import():
     """Manually trigger import for all providers."""
     try:
+        assert scheduler is not None, "Scheduler not initialized"
         scheduler.trigger_import_now()
 
+        next_run = scheduler.get_next_run_time()
         return jsonify(
             {
                 "message": "Import job triggered",
                 "next_scheduled_import": (
-                    scheduler.get_next_run_time().isoformat()
-                    if scheduler.get_next_run_time()
-                    else None
+                    next_run.isoformat() if next_run else None
                 ),
             }
         )
@@ -224,6 +235,7 @@ def trigger_import():
 def import_status():
     """Get import status and next scheduled run time."""
     try:
+        assert scheduler is not None, "Scheduler not initialized"
         from ..database.connection import get_db
         from ..database.models import ImportLog
 
@@ -258,6 +270,7 @@ def import_status():
 def list_all_aliases():
     """List all aliases across all channels."""
     try:
+        assert epg_service is not None, "EPG service not initialized"
         aliases = epg_service.list_all_aliases()
 
         # Basic response
@@ -273,6 +286,7 @@ def list_all_aliases():
 def get_alias_mapping():
     """Get optimized alias-to-channel mapping."""
     try:
+        assert epg_service is not None, "EPG service not initialized"
         mapping = {}
 
         # Get channels first for lookup
@@ -303,6 +317,8 @@ def get_alias_mapping():
 def list_channel_aliases(channel_identifier):
     """List all aliases for a channel."""
     try:
+        assert epg_service is not None, "EPG service not initialized"
+
         # Get channel by ID, name, or alias
         channel = epg_service.get_channel_by_id_or_alias(channel_identifier)
         if not channel:
@@ -321,6 +337,7 @@ def list_channel_aliases(channel_identifier):
 def create_channel_alias(channel_identifier):
     """Create an alias for a channel."""
     try:
+        assert epg_service is not None, "EPG service not initialized"
         data = request.get_json()
 
         if not data:
@@ -353,6 +370,7 @@ def create_channel_alias(channel_identifier):
 def delete_channel_alias(alias_id):
     """Delete a channel alias."""
     try:
+        assert epg_service is not None, "EPG service not initialized"
         deleted = epg_service.delete_channel_alias(alias_id)
 
         if not deleted:
@@ -365,13 +383,11 @@ def delete_channel_alias(alias_id):
         return jsonify({"error": str(e)}), 500
 
 
-# Add these endpoints to handlers.py
-
-
 @api_bp.route("/providers/<int:provider_id>/test", methods=["GET"])
 def test_provider_connection(provider_id):
     """Test connection to provider's XMLTV URL."""
     try:
+        assert provider_service is not None, "Provider service not initialized"
         provider = provider_service.get_provider(provider_id)
         if not provider:
             return jsonify({"error": "Provider not found"}), 404
@@ -461,8 +477,6 @@ def trigger_ultimate_full_import():
     api_max_future_days of future data.  Runs in a daemon thread so the
     request returns immediately.
     """
-    global scheduler
-
     if not scheduler or not scheduler.ultimate_import_service:
         return jsonify({"error": "Ultimate Backend not initialized"}), 500
 
@@ -485,8 +499,6 @@ def trigger_ultimate_incremental_import():
     Each channel advances from its last_imported_until cursor; channels with
     no prior state fall back to a full historical fetch.
     """
-    global scheduler
-
     if not scheduler or not scheduler.ultimate_import_service:
         return jsonify({"error": "Ultimate Backend not initialized"}), 500
 
@@ -508,15 +520,12 @@ def preview_duplicates():
     """
     try:
         from ..database.connection import get_db
-        from ..services.cleanup_service import CleanupService
 
-        cleanup_service = CleanupService()
         db = get_db()
 
         # Get time tolerance from query parameter (default 5 minutes)
         time_tolerance = request.args.get("time_tolerance", default=5, type=int)
 
-        # Find potential duplicates using fuzzy matching
         find_potential_duplicates_sql = """
                                         WITH potential_duplicates AS (SELECT p1.id                                                              as id1, \
                                                                              p2.id                                                              as id2, \
@@ -606,13 +615,13 @@ def preview_duplicates():
                         {
                             "id": id1,
                             "title": title1,
-                            "start_time": start1 + "Z",  # Add Z suffix
+                            "start_time": start1 + "Z",
                             "created_at": created1 + "Z" if created1 else None,
                         },
                         {
                             "id": id2,
                             "title": title2,
-                            "start_time": start2 + "Z",  # Add Z suffix
+                            "start_time": start2 + "Z",
                             "created_at": created2 + "Z" if created2 else None,
                         },
                     ],
@@ -632,13 +641,9 @@ def preview_duplicates():
             )
 
         # Get estimated removal count
-        if duplicate_list:
-            # Count how many would be removed (keep newest, remove older)
-            estimated_removals = sum(
-                1 for dup in duplicate_list if dup["match_quality"]["would_be_removed"]
-            )
-        else:
-            estimated_removals = 0
+        estimated_removals = sum(
+            1 for dup in duplicate_list if dup["match_quality"]["would_be_removed"]
+        ) if duplicate_list else 0
 
         return jsonify(
             {
@@ -660,6 +665,7 @@ def preview_duplicates():
 def trigger_provider_import(provider_id):
     """Trigger import for a specific provider."""
     try:
+        assert provider_service is not None, "Provider service not initialized"
         provider = provider_service.get_provider(provider_id)
         if not provider:
             return jsonify({"error": "Provider not found"}), 404
@@ -667,8 +673,6 @@ def trigger_provider_import(provider_id):
         if not provider.enabled:
             return jsonify({"error": "Provider is disabled"}), 400
 
-        # You'll need to implement this in your import service
-        # For now, return a placeholder response
         return jsonify(
             {
                 "success": True,
@@ -856,20 +860,17 @@ def get_ultimate_status():
 @api_bp.route("/ultimate/discover", methods=["POST"])
 def trigger_ultimate_discovery():
     """Manually trigger provider/channel discovery."""
-    global scheduler
-
     if not scheduler:
         return jsonify({"error": "Scheduler not initialized"}), 500
 
     try:
         scheduler.trigger_ultimate_discovery_now()
+        next_run = scheduler.get_next_run_time("weekly_ultimate_discovery")
         return jsonify(
             {
                 "message": "Ultimate Backend discovery triggered",
                 "next_scheduled": (
-                    scheduler.get_next_run_time("weekly_ultimate_discovery").isoformat()
-                    if scheduler.get_next_run_time("weekly_ultimate_discovery")
-                    else None
+                    next_run.isoformat() if next_run else None
                 ),
             }
         )
@@ -881,25 +882,162 @@ def trigger_ultimate_discovery():
 @api_bp.route("/ultimate/import", methods=["POST"])
 def trigger_ultimate_import():
     """Manually trigger incremental import for all channels."""
-    global scheduler
-
     if not scheduler:
         return jsonify({"error": "Scheduler not initialized"}), 500
 
     try:
         scheduler.trigger_ultimate_incremental_now()
+        next_run = scheduler.get_next_run_time("daily_ultimate_import")
         return jsonify(
             {
                 "message": "Ultimate Backend incremental import triggered",
                 "next_scheduled": (
-                    scheduler.get_next_run_time("daily_ultimate_import").isoformat()
-                    if scheduler.get_next_run_time("daily_ultimate_import")
-                    else None
+                    next_run.isoformat() if next_run else None
                 ),
             }
         )
     except Exception as e:
         logger.error(f"Error triggering import: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/providers/<identifier>/epg.xml", methods=["GET"])
+def export_provider_epg_xml(identifier):
+    """
+    Export EPG data for a provider as XMLTV.
+
+    Args:
+        identifier: Provider ID or name
+
+    Query params:
+        start: Optional start time (ISO format, default: 7 days ago)
+        end: Optional end time (ISO format, default: 7 days from now)
+    """
+    try:
+        assert epg_service is not None, "EPG service not initialized"
+        from ..parsers.xmltv_serializer import XMLTVSerializer
+
+        # Parse time range parameters
+        start_str = request.args.get("start")
+        end_str = request.args.get("end")
+
+        if start_str:
+            try:
+                start_time = isoparse(start_str)
+            except ValueError as e:
+                return jsonify({"error": f"Invalid start datetime: {e}"}), 400
+        else:
+            # Default: 7 days ago at midnight UTC
+            start_time = datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) - timedelta(days=7)
+
+        if end_str:
+            try:
+                end_time = isoparse(end_str)
+            except ValueError as e:
+                return jsonify({"error": f"Invalid end datetime: {e}"}), 400
+        else:
+            # Default: 7 days from now at midnight UTC
+            end_time = datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) + timedelta(days=7)
+
+        # Get provider by ID or name
+        provider = epg_service.get_provider_by_id_or_name(identifier)
+        if not provider:
+            return jsonify({"error": f"Provider not found: {identifier}"}), 404
+
+        # Get channels and programs
+        channels, programs = epg_service.get_provider_programs_for_export(
+            provider_id=provider.id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        # Serialize to XMLTV
+        serializer = XMLTVSerializer()
+
+        from ..config import load_config
+        config = load_config()
+        config.get_section("server")  # Load server config (used by serializer internally if needed)
+
+        xml_output = serializer.serialize_tv(
+            channels=channels,
+            programs=programs,
+            generator_info_name="EPG Service/1.0.0",
+            generator_info_url="https://github.com/your-repo/epg-service",
+            source_info_name=provider.name,
+            source_info_url=provider.xmltv_url if provider.xmltv_url else None,
+        )
+
+        return Response(
+            xml_output,
+            mimetype="application/xml",
+            headers={
+                "Content-Disposition": (
+                    f'inline; filename="epg_{provider.name}_'
+                    f'{start_time.strftime("%Y%m%d")}_{end_time.strftime("%Y%m%d")}.xml"'
+                )
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error exporting XMLTV for provider {identifier}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/providers/<identifier>/epg.xml/channels", methods=["GET"])
+def export_provider_channels_xml(identifier):
+    """
+    Export only channels for a provider as XMLTV.
+
+    Args:
+        identifier: Provider ID or name
+    """
+    try:
+        assert epg_service is not None, "EPG service not initialized"
+        from ..parsers.xmltv_serializer import XMLTVSerializer
+
+        # Get provider by ID or name
+        provider = epg_service.get_provider_by_id_or_name(identifier)
+        if not provider:
+            return jsonify({"error": f"Provider not found: {identifier}"}), 404
+
+        # Get channels only (time range not needed)
+        channels, _ = epg_service.get_provider_programs_for_export(
+            provider_id=provider.id,
+            start_time=None,
+            end_time=None,
+        )
+
+        # Serialize only channels
+        serializer = XMLTVSerializer()
+        tv_elem = Element("tv")
+        for channel in channels:
+            tv_elem.append(serializer.serialize_channel(channel))
+
+        rough_string = tostring(tv_elem, "utf-8")
+        reparsed = minidom.parseString(rough_string)
+        pretty_xml = reparsed.toprettyxml(indent="  ", encoding="utf-8").decode("utf-8")
+
+        # Add DOCTYPE
+        xml_parts = pretty_xml.split("\n", 1)
+        if len(xml_parts) > 1:
+            result = f"{xml_parts[0]}\n{serializer.DOCTYPE}\n{xml_parts[1]}"
+        else:
+            result = pretty_xml
+
+        return Response(
+            result,
+            mimetype="application/xml",
+            headers={
+                "Content-Disposition": f'inline; filename="channels_{provider.name}.xml"'
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error exporting channels for provider {identifier}: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -1024,16 +1162,12 @@ def list_ultimate_provider_channels(provider_id):
 @api_bp.route("/ultimate/channels/<int:channel_id>/import", methods=["POST"])
 def trigger_ultimate_channel_import(channel_id):
     """Manually trigger import for a specific Ultimate Backend channel."""
-    global scheduler
-
-    # Get ultimate_import_service from scheduler
     ultimate_import_service = getattr(scheduler, "ultimate_import_service", None)
 
     if not scheduler or not ultimate_import_service:
         return jsonify({"error": "Ultimate Backend not initialized"}), 500
 
     try:
-        # Get channel info
         from ..database.connection import get_db
 
         db = get_db()
@@ -1056,7 +1190,6 @@ def trigger_ultimate_channel_import(channel_id):
         if not channel:
             return jsonify({"error": "Channel not found"}), 404
 
-        # Run import asynchronously in background
         import asyncio
         from threading import Thread
 
@@ -1090,12 +1223,12 @@ def trigger_ultimate_channel_import(channel_id):
 
 
 @api_bp.errorhandler(404)
-def not_found(error):
+def not_found(_error):
     """Handle 404 errors."""
     return jsonify({"error": "Endpoint not found"}), 404
 
 
 @api_bp.errorhandler(500)
-def internal_error(error):
+def internal_error(_error):
     """Handle 500 errors."""
     return jsonify({"error": "Internal server error"}), 500
