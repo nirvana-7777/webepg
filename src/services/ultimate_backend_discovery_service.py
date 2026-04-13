@@ -135,7 +135,7 @@ class UltimateBackendDiscoveryService:
             return row[0]
 
         db.execute(
-            "INSERT INTO ultimate_backend_instances (name, base_url) VALUES (?, ?)",
+            "INSERT INTO ultimate_backend_instance (name, base_url) VALUES (?, ?)",
             ("main", self.client.base_url),
         )
 
