@@ -183,23 +183,17 @@ class UltimateBackendDiscoveryService:
             return row[0]
 
     async def _process_channel(
-        self,
-        provider_id: int,
-        provider_name: str,
-        channel_data: Dict,
+            self,
+            provider_id: int,
+            provider_name: str,
+            channel_data: Dict,
     ) -> Optional[int]:
         """
         Process a single channel: create logical channel and mapping.
-
-        The real API returns string channel IDs (e.g. "Zf4PyxjqUvbe" for
-        magenta2 channels). These are stored as-is in ultimate_channel_id.
-
-        Returns:
-            EPG Service channel ID if created/found, None otherwise.
+        This method is idempotent - it will create missing mappings on subsequent runs.
         """
         db = get_db()
 
-        # Channel IDs are opaque strings — do NOT cast to int.
         ultimate_channel_id = str(channel_data.get("Id", channel_data.get("id", "")))
         channel_name = channel_data.get("Name", channel_data.get("name", ""))
 
@@ -207,19 +201,28 @@ class UltimateBackendDiscoveryService:
             logger.warning(f"Invalid channel data (missing Id or Name): {channel_data}")
             return None
 
-        # Safely coerce channel_number: missing, null, or non-integer → 0
+        # Safely coerce values
         raw_number = channel_data.get("ChannelNumber")
         try:
             channel_number = int(raw_number) if raw_number is not None else 0
         except (ValueError, TypeError):
             channel_number = 0
 
-        # Safely coerce catchup_hours
         raw_catchup = channel_data.get("CatchupHours")
         try:
             catchup_hours = int(raw_catchup) if raw_catchup is not None else 168
         except (ValueError, TypeError):
             catchup_hours = 168
+
+        # Get or create logical channel in EPG Service
+        logical_name = f"{provider_name}:{ultimate_channel_id}"
+        channel = self.epg_service.get_or_create_channel(
+            name=logical_name,
+            display_name=channel_name,
+            icon_url=channel_data.get("LogoUrl", channel_data.get("logo_url")),
+        )
+
+        logger.info(f"Got/Created logical channel: ID={channel.id}, Name={logical_name}")
 
         # Check if channel already exists in ultimate_channels
         row = db.fetchone(
@@ -232,32 +235,7 @@ class UltimateBackendDiscoveryService:
 
         if row:
             ultimate_channel_db_id = row[0]
-            # Check if mapping already exists — if so, return early
-            mapping_row = db.fetchone(
-                "SELECT channel_id FROM ultimate_channel_mappings WHERE ultimate_channel_id = ?",
-                (ultimate_channel_db_id,),
-            )
-            if mapping_row:
-                return mapping_row[0]
-
-        # Create or get logical channel in EPG Service.
-        # First check if this provider channel ID is already known via an alias
-        # (e.g. registered by the XMLTV importer). If so, reuse that logical channel
-        # instead of creating a new one.
-        channel = self.epg_service.get_channel_by_alias(ultimate_channel_id)
-
-        if not channel:
-            # No alias match — fall back to name-based lookup / creation.
-            logical_name = f"{provider_name}:{ultimate_channel_id}"
-            channel = self.epg_service.get_or_create_channel(
-                name=logical_name,
-                display_name=channel_name,
-                icon_url=channel_data.get("LogoUrl", channel_data.get("logo_url")),
-            )
-
-        # Insert or update ultimate_channels
-        if row:
-            ultimate_channel_db_id = row[0]
+            # Update existing ultimate_channel with latest data
             db.execute(
                 """
                 UPDATE ultimate_channels
@@ -276,8 +254,10 @@ class UltimateBackendDiscoveryService:
                     ultimate_channel_db_id,
                 ),
             )
+            logger.debug(f"Updated ultimate_channel entry: ID={ultimate_channel_db_id}")
         else:
-            db.execute(
+            # Create new ultimate_channel
+            cursor = db.execute(
                 """
                 INSERT INTO ultimate_channels (
                     ultimate_provider_id, ultimate_channel_id, channel_name,
@@ -295,30 +275,69 @@ class UltimateBackendDiscoveryService:
                     channel_data.get("StreamUid", channel_data.get("stream_uid")),
                 ),
             )
-            row = db.fetchone("SELECT last_insert_rowid()")
-            ultimate_channel_db_id = row[0]
+            ultimate_channel_db_id = cursor.lastrowid
+            logger.info(f"Created ultimate_channel entry: ID={ultimate_channel_db_id}")
 
-        # Create mapping
-        db.execute(
+        # ===================================================================
+        # FIX: ALWAYS ensure mapping exists - this runs for both new AND existing channels
+        # ===================================================================
+        existing_mapping = db.fetchone(
             """
-            INSERT OR IGNORE INTO ultimate_channel_mappings (ultimate_channel_id, channel_id)
-            VALUES (?, ?)
+            SELECT id FROM ultimate_channel_mappings 
+            WHERE ultimate_channel_id = ? AND channel_id = ?
             """,
             (ultimate_channel_db_id, channel.id),
         )
 
-        # Initialize import state
-        db.execute(
+        if not existing_mapping:
+            db.execute(
+                """
+                INSERT INTO ultimate_channel_mappings (ultimate_channel_id, channel_id)
+                VALUES (?, ?)
+                """,
+                (ultimate_channel_db_id, channel.id),
+            )
+            logger.info(f"Created mapping: ultimate_channel_id={ultimate_channel_db_id} -> channel_id={channel.id}")
+        else:
+            logger.debug(f"Mapping already exists: ID={existing_mapping[0]}")
+
+        # Always ensure import state exists
+        existing_state = db.fetchone(
             """
-            INSERT OR IGNORE INTO channel_import_state (ultimate_channel_id, sync_status)
-            VALUES (?, 'pending')
+            SELECT id FROM channel_import_state WHERE ultimate_channel_id = ?
             """,
             (ultimate_channel_db_id,),
         )
 
+        if not existing_state:
+            db.execute(
+                """
+                INSERT INTO channel_import_state (ultimate_channel_id, sync_status)
+                VALUES (?, 'pending')
+                """,
+                (ultimate_channel_db_id,),
+            )
+            logger.info(f"Created import state for channel {ultimate_channel_db_id}")
+        else:
+            # Also reset failed channels on rediscovery
+            state_row = db.fetchone(
+                "SELECT sync_status FROM channel_import_state WHERE ultimate_channel_id = ?",
+                (ultimate_channel_db_id,),
+            )
+            if state_row and state_row[0] == 'failed':
+                db.execute(
+                    """
+                    UPDATE channel_import_state
+                    SET sync_status = 'pending', last_error = NULL, updated_at = ?
+                    WHERE ultimate_channel_id = ?
+                    """,
+                    (datetime.utcnow().isoformat(), ultimate_channel_db_id),
+                )
+                logger.info(f"Reset failed import state for channel {ultimate_channel_db_id}")
+
         logger.info(
             f"Mapped channel: {channel_name} (ID: {ultimate_channel_id}) "
-            f"-> logical channel {channel.id}"
+            f"-> logical channel {channel.id} (ultimate_channel_db_id={ultimate_channel_db_id})"
         )
 
         return channel.id
