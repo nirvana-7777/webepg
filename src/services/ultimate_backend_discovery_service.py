@@ -190,12 +190,13 @@ class UltimateBackendDiscoveryService:
     ) -> Optional[int]:
         """
         Process a single channel: create logical channel and mapping.
-        This method is idempotent - it will create missing mappings on subsequent runs.
+        Only updates when values actually change.
         """
         db = get_db()
 
         ultimate_channel_id = str(channel_data.get("Id", channel_data.get("id", "")))
         channel_name = channel_data.get("Name", channel_data.get("name", ""))
+        channel_logo = channel_data.get("LogoUrl", channel_data.get("logo_url"))
 
         if not ultimate_channel_id or not channel_name:
             logger.warning(f"Invalid channel data (missing Id or Name): {channel_data}")
@@ -214,20 +215,54 @@ class UltimateBackendDiscoveryService:
         except (ValueError, TypeError):
             catchup_hours = 168
 
-        # Get or create logical channel in EPG Service
+        # Get or create logical channel
         logical_name = f"{provider_name}:{ultimate_channel_id}"
-        channel = self.epg_service.get_or_create_channel(
-            name=logical_name,
-            display_name=channel_name,
-            icon_url=channel_data.get("LogoUrl", channel_data.get("logo_url")),
-        )
 
-        logger.info(f"Got/Created logical channel: ID={channel.id}, Name={logical_name}")
+        # First, try to get existing channel
+        existing_channel = self.epg_service.get_channel_by_name(logical_name)
+
+        if existing_channel:
+            # Check if values actually changed before updating
+            needs_update = False
+
+            if existing_channel.display_name != channel_name:
+                logger.debug(
+                    f"Channel {logical_name} display_name changed: '{existing_channel.display_name}' -> '{channel_name}'")
+                needs_update = True
+
+            if existing_channel.icon_url != channel_logo:
+                logger.debug(
+                    f"Channel {logical_name} icon_url changed: '{existing_channel.icon_url}' -> '{channel_logo}'")
+                needs_update = True
+
+            if needs_update:
+                db.execute(
+                    """
+                    UPDATE channels 
+                    SET display_name = ?, icon_url = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (channel_name, channel_logo, existing_channel.id)
+                )
+                logger.info(f"Updated channel {logical_name}")
+            else:
+                logger.debug(f"Channel {logical_name} unchanged, skipping update")
+
+            channel = existing_channel
+        else:
+            # Create new channel
+            channel = self.epg_service.create_channel(
+                name=logical_name,
+                display_name=channel_name,
+                icon_url=channel_logo,
+            )
+            logger.info(f"Created new channel {logical_name}")
 
         # Check if channel already exists in ultimate_channels
         row = db.fetchone(
             """
-            SELECT id FROM ultimate_channels
+            SELECT id, channel_name, channel_number, logo_url, catchup_hours, live_id, stream_uid
+            FROM ultimate_channels
             WHERE ultimate_provider_id = ? AND ultimate_channel_id = ?
             """,
             (provider_id, ultimate_channel_id),
@@ -235,26 +270,52 @@ class UltimateBackendDiscoveryService:
 
         if row:
             ultimate_channel_db_id = row[0]
-            # Update existing ultimate_channel with latest data
-            db.execute(
-                """
-                UPDATE ultimate_channels
-                SET channel_name = ?, channel_number = ?, logo_url = ?,
-                    catchup_hours = ?, live_id = ?, stream_uid = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    channel_name,
-                    channel_number,
-                    channel_data.get("LogoUrl", channel_data.get("logo_url")),
-                    catchup_hours,
-                    channel_data.get("LiveId", channel_data.get("live_id")),
-                    channel_data.get("StreamUid", channel_data.get("stream_uid")),
-                    datetime.utcnow().isoformat(),
-                    ultimate_channel_db_id,
-                ),
-            )
-            logger.debug(f"Updated ultimate_channel entry: ID={ultimate_channel_db_id}")
+
+            # Build dynamic update only for changed fields
+            updates = []
+            params = []
+
+            if row[1] != channel_name:
+                updates.append("channel_name = ?")
+                params.append(channel_name)
+                logger.debug(f"ultimate_channel {ultimate_channel_id} name changed: '{row[1]}' -> '{channel_name}'")
+
+            if row[2] != channel_number:
+                updates.append("channel_number = ?")
+                params.append(channel_number)
+                logger.debug(f"ultimate_channel {ultimate_channel_id} number changed: {row[2]} -> {channel_number}")
+
+            if row[3] != channel_logo:
+                updates.append("logo_url = ?")
+                params.append(channel_logo)
+                logger.debug(f"ultimate_channel {ultimate_channel_id} logo changed")
+
+            if row[4] != catchup_hours:
+                updates.append("catchup_hours = ?")
+                params.append(catchup_hours)
+
+            live_id = channel_data.get("LiveId", channel_data.get("live_id"))
+            if row[5] != live_id:
+                updates.append("live_id = ?")
+                params.append(live_id)
+
+            stream_uid = channel_data.get("StreamUid", channel_data.get("stream_uid"))
+            if row[6] != stream_uid:
+                updates.append("stream_uid = ?")
+                params.append(stream_uid)
+
+            if updates:
+                updates.append("updated_at = ?")
+                params.append(datetime.utcnow().isoformat())
+                params.append(ultimate_channel_db_id)
+
+                db.execute(
+                    f"UPDATE ultimate_channels SET {', '.join(updates)} WHERE id = ?",
+                    tuple(params)
+                )
+                logger.info(f"Updated {len(updates) - 1} fields for ultimate_channel {ultimate_channel_id}")
+            else:
+                logger.debug(f"ultimate_channel {ultimate_channel_id} unchanged, skipping update")
         else:
             # Create new ultimate_channel
             cursor = db.execute(
@@ -269,7 +330,7 @@ class UltimateBackendDiscoveryService:
                     ultimate_channel_id,
                     channel_name,
                     channel_number,
-                    channel_data.get("LogoUrl", channel_data.get("logo_url")),
+                    channel_logo,
                     catchup_hours,
                     channel_data.get("LiveId", channel_data.get("live_id")),
                     channel_data.get("StreamUid", channel_data.get("stream_uid")),
@@ -278,9 +339,7 @@ class UltimateBackendDiscoveryService:
             ultimate_channel_db_id = cursor.lastrowid
             logger.info(f"Created ultimate_channel entry: ID={ultimate_channel_db_id}")
 
-        # ===================================================================
-        # FIX: ALWAYS ensure mapping exists - this runs for both new AND existing channels
-        # ===================================================================
+        # Ensure mapping exists (only if missing)
         existing_mapping = db.fetchone(
             """
             SELECT id FROM ultimate_channel_mappings 
@@ -298,10 +357,8 @@ class UltimateBackendDiscoveryService:
                 (ultimate_channel_db_id, channel.id),
             )
             logger.info(f"Created mapping: ultimate_channel_id={ultimate_channel_db_id} -> channel_id={channel.id}")
-        else:
-            logger.debug(f"Mapping already exists: ID={existing_mapping[0]}")
 
-        # Always ensure import state exists
+        # Ensure import state exists (only if missing)
         existing_state = db.fetchone(
             """
             SELECT id FROM channel_import_state WHERE ultimate_channel_id = ?
@@ -318,27 +375,6 @@ class UltimateBackendDiscoveryService:
                 (ultimate_channel_db_id,),
             )
             logger.info(f"Created import state for channel {ultimate_channel_db_id}")
-        else:
-            # Also reset failed channels on rediscovery
-            state_row = db.fetchone(
-                "SELECT sync_status FROM channel_import_state WHERE ultimate_channel_id = ?",
-                (ultimate_channel_db_id,),
-            )
-            if state_row and state_row[0] == 'failed':
-                db.execute(
-                    """
-                    UPDATE channel_import_state
-                    SET sync_status = 'pending', last_error = NULL, updated_at = ?
-                    WHERE ultimate_channel_id = ?
-                    """,
-                    (datetime.utcnow().isoformat(), ultimate_channel_db_id),
-                )
-                logger.info(f"Reset failed import state for channel {ultimate_channel_db_id}")
-
-        logger.info(
-            f"Mapped channel: {channel_name} (ID: {ultimate_channel_id}) "
-            f"-> logical channel {channel.id} (ultimate_channel_db_id={ultimate_channel_db_id})"
-        )
 
         return channel.id
 
