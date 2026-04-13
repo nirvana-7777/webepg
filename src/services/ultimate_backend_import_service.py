@@ -1,3 +1,5 @@
+# src/services/ultimate_backend_import_service.py
+
 """
 Import service for Ultimate Backend EPG data.
 
@@ -456,19 +458,15 @@ class UltimateBackendImportService:
             provider_name: str,
     ) -> str:
         """
-        Insert or update a program keyed on ultimate_epg_id.
+        Insert or update a program using ON CONFLICT for deduplication.
 
-        Change detection covers title, description, and schedule times so that
-        both content edits and timeslot shifts are persisted.
+        Uses SQLite's ON CONFLICT clause to handle the UNIQUE constraint
+        on (channel_id, start_time, end_time). When a conflict occurs,
+        updates the existing record with new data.
 
         Returns 'inserted', 'updated', or 'skipped'.
         """
         db = get_db()
-
-        existing = db.fetchone(
-            "SELECT id, title, start_time, end_time, description FROM programs WHERE ultimate_epg_id = ?",
-            (program.epg_id,),
-        )
 
         # Get or create provider using unified schema
         provider_row = db.fetchone(
@@ -489,26 +487,20 @@ class UltimateBackendImportService:
 
         provider_id = provider_row[0]
 
+        # Check if program already exists by ultimate_epg_id (if available)
+        existing = None
+        if program.epg_id:
+            existing = db.fetchone(
+                "SELECT id FROM programs WHERE ultimate_epg_id = ?",
+                (program.epg_id,),
+            )
+
         new_start = program.start.isoformat()
         new_end = program.end.isoformat()
 
+        # If we found an existing program by epg_id, update it
         if existing:
-            existing_id       = existing[0]
-            existing_title    = existing[1]
-            existing_start    = existing[2]
-            existing_end      = existing[3]
-            existing_desc     = existing[4]
-
-            changed = (
-                existing_title != program.title
-                or existing_desc != program.plot
-                or existing_start != new_start
-                or existing_end != new_end
-            )
-
-            if not changed:
-                return "skipped"
-
+            existing_id = existing[0]
             db.execute(
                 """
                 UPDATE programs
@@ -527,8 +519,7 @@ class UltimateBackendImportService:
                     rating           = ?,
                     icon_url         = ?,
                     thumbnail_url    = ?,
-                    images           = ?,
-                    updated_at       = CURRENT_TIMESTAMP
+                    images           = ?
                 WHERE id = ?
                 """,
                 (
@@ -545,62 +536,133 @@ class UltimateBackendImportService:
                     program.producer,
                     str(program.year) if program.year else None,
                     str(program.rating) if program.rating is not None else None,
-                    program.thumbnail or (program.images.get("background") if program.images else None),  # icon_url
-                    program.thumbnail,  # thumbnail_url
-                    json.dumps(program.images) if program.images else None,  # images
+                    program.thumbnail or (program.images.get("background") if program.images else None),
+                    program.thumbnail,
+                    json.dumps(program.images) if program.images else None,
                     existing_id,
                 ),
             )
             logger.debug(f"Updated program {program.epg_id}: {program.title}")
             return "updated"
 
-        # Insert new program.
-        program_dict = program.to_dict()
-        db.execute(
-            """
-            INSERT INTO programs (
-                channel_id, provider_id, start_time, end_time,
-                title, subtitle, description,
-                category, ultimate_epg_id, schedule_id,
-                season_num, episode_num, has_episode_info,
-                director, actors, producer,
-                production_year, rating, thumbnail_url, images,
-                created_at
-            ) VALUES (
-                ?, ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?, ?,
-                CURRENT_TIMESTAMP
+        # Try to insert with ON CONFLICT handling for the unique constraint
+        # on (channel_id, start_time, end_time)
+        try:
+            db.execute(
+                """
+                INSERT INTO programs (
+                    channel_id, provider_id, start_time, end_time,
+                    title, subtitle, description,
+                    category, ultimate_epg_id, schedule_id,
+                    season_num, episode_num, has_episode_info,
+                    director, actors, producer,
+                    production_year, rating, thumbnail_url, images
+                ) VALUES (
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?
+                )
+                ON CONFLICT(channel_id, start_time, end_time) DO UPDATE SET
+                    title = COALESCE(excluded.title, title),
+                    subtitle = COALESCE(excluded.subtitle, subtitle),
+                    description = COALESCE(excluded.description, description),
+                    category = COALESCE(excluded.category, category),
+                    ultimate_epg_id = COALESCE(excluded.ultimate_epg_id, ultimate_epg_id),
+                    schedule_id = COALESCE(excluded.schedule_id, schedule_id),
+                    season_num = COALESCE(excluded.season_num, season_num),
+                    episode_num = COALESCE(excluded.episode_num, episode_num),
+                    has_episode_info = COALESCE(excluded.has_episode_info, has_episode_info),
+                    director = COALESCE(excluded.director, director),
+                    actors = COALESCE(excluded.actors, actors),
+                    producer = COALESCE(excluded.producer, producer),
+                    production_year = COALESCE(excluded.production_year, production_year),
+                    rating = COALESCE(excluded.rating, rating),
+                    thumbnail_url = COALESCE(excluded.thumbnail_url, thumbnail_url),
+                    images = COALESCE(excluded.images, images)
+                """,
+                (
+                    logical_channel_id,
+                    provider_id,
+                    new_start,
+                    new_end,
+                    program.title,
+                    program.episode_title,
+                    program.plot,
+                    program.genre,
+                    program.epg_id,
+                    program.schedule_id,
+                    program.season_num,
+                    program.episode_num,
+                    1 if program.has_episode_info else 0,
+                    program.director,
+                    json.dumps(program.cast) if program.cast else None,
+                    program.producer,
+                    str(program.year) if program.year else None,
+                    str(program.rating) if program.rating is not None else None,
+                    program.thumbnail,
+                    json.dumps(program.images) if program.images else None,
+                ),
             )
-            """,
-            (
-                logical_channel_id,
-                provider_id,
-                new_start,
-                new_end,
-                program.title,
-                program.episode_title,
-                program.plot,
-                program.genre,
-                program.epg_id,
-                program.schedule_id,
-                program.season_num,
-                program.episode_num,
-                1 if program.has_episode_info else 0,
-                program.director,
-                json.dumps(program.cast) if program.cast else None,
-                program.producer,
-                program_dict.get("production_year"),
-                str(program.rating) if program.rating is not None else None,
-                program.thumbnail,
-                json.dumps(program.images) if program.images else None,
-            ),
-        )
-        logger.debug(f"Inserted program {program.epg_id}: {program.title}")
-        return "inserted"
+            # Check if it was an insert or update by looking at changes
+            changes = db.fetchone("SELECT changes()")
+            if changes and changes[0] > 0:
+                logger.debug(f"Inserted program {program.epg_id}: {program.title}")
+                return "inserted"
+            else:
+                # This was an update (no new row inserted)
+                logger.debug(f"Updated (conflict) program {program.epg_id}: {program.title}")
+                return "updated"
+
+        except Exception as e:
+            # Fall back to checking if it exists by time slot
+            logger.warning(f"Upsert failed, checking by time slot: {e}")
+            existing_by_time = db.fetchone(
+                """
+                SELECT id FROM programs
+                WHERE channel_id = ? AND start_time = ? AND end_time = ?
+                """,
+                (logical_channel_id, new_start, new_end),
+            )
+
+            if existing_by_time:
+                # Update existing
+                db.execute(
+                    """
+                    UPDATE programs
+                    SET title = ?, subtitle = ?, description = ?,
+                        category = ?, ultimate_epg_id = ?, schedule_id = ?,
+                        season_num = ?, episode_num = ?, has_episode_info = ?,
+                        director = ?, actors = ?, producer = ?,
+                        production_year = ?, rating = ?, thumbnail_url = ?, images = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        program.title,
+                        program.episode_title,
+                        program.plot,
+                        program.genre,
+                        program.epg_id,
+                        program.schedule_id,
+                        program.season_num,
+                        program.episode_num,
+                        1 if program.has_episode_info else 0,
+                        program.director,
+                        json.dumps(program.cast) if program.cast else None,
+                        program.producer,
+                        str(program.year) if program.year else None,
+                        str(program.rating) if program.rating is not None else None,
+                        program.thumbnail,
+                        json.dumps(program.images) if program.images else None,
+                        existing_by_time[0],
+                    ),
+                )
+                return "updated"
+
+            # Re-raise if we can't handle
+            raise
 
     # ------------------------------------------------------------------
     # Helpers
