@@ -458,11 +458,10 @@ class UltimateBackendImportService:
             provider_name: str,
     ) -> str:
         """
-        Insert or update a program using ON CONFLICT for deduplication.
+        Insert or update a program using INSERT OR REPLACE or explicit conflict handling.
 
-        Uses SQLite's ON CONFLICT clause to handle the UNIQUE constraint
-        on (channel_id, start_time, end_time). When a conflict occurs,
-        updates the existing record with new data.
+        Uses SQLite's INSERT OR REPLACE to handle the UNIQUE constraint
+        on (channel_id, start_time, end_time).
 
         Returns 'inserted', 'updated', or 'skipped'.
         """
@@ -487,70 +486,84 @@ class UltimateBackendImportService:
 
         provider_id = provider_row[0]
 
-        # Check if program already exists by ultimate_epg_id (if available)
-        existing = None
-        if program.epg_id:
-            existing = db.fetchone(
-                "SELECT id FROM programs WHERE ultimate_epg_id = ?",
-                (program.epg_id,),
-            )
-
         new_start = program.start.isoformat()
         new_end = program.end.isoformat()
 
-        # If we found an existing program by epg_id, update it
+        # First, check if program already exists by time slot
+        existing = db.fetchone(
+            """
+            SELECT id, ultimate_epg_id, title, description 
+            FROM programs 
+            WHERE channel_id = ? AND start_time = ? AND end_time = ?
+            """,
+            (logical_channel_id, new_start, new_end),
+        )
+
         if existing:
             existing_id = existing[0]
+            existing_epg_id = existing[1]
+
+            # Check if this is truly the same program or a different one at same time
+            # If it has a different ultimate_epg_id, it's a different program at same time slot
+            if existing_epg_id and existing_epg_id != program.epg_id:
+                # Different program at same time - this shouldn't happen but if it does,
+                # we need to decide which one to keep. Keep the one with more data.
+                logger.warning(
+                    f"Time slot conflict: existing program {existing_epg_id} vs "
+                    f"new {program.epg_id} at {new_start}. Updating with new data."
+                )
+
+            # Update existing program
             db.execute(
                 """
                 UPDATE programs
-                SET title            = ?,
-                    subtitle         = ?,
-                    description      = ?,
-                    start_time       = ?,
-                    end_time         = ?,
-                    category         = ?,
-                    season_num       = ?,
-                    episode_num      = ?,
-                    director         = ?,
-                    actors           = ?,
-                    producer         = ?,
-                    production_year  = ?,
-                    rating           = ?,
-                    icon_url         = ?,
-                    thumbnail_url    = ?,
-                    images           = ?
+                SET title            = COALESCE(?, title),
+                    subtitle         = COALESCE(?, subtitle),
+                    description      = COALESCE(?, description),
+                    category         = COALESCE(?, category),
+                    ultimate_epg_id  = COALESCE(?, ultimate_epg_id),
+                    schedule_id      = COALESCE(?, schedule_id),
+                    season_num       = COALESCE(?, season_num),
+                    episode_num      = COALESCE(?, episode_num),
+                    has_episode_info = COALESCE(?, has_episode_info),
+                    director         = COALESCE(?, director),
+                    actors           = COALESCE(?, actors),
+                    producer         = COALESCE(?, producer),
+                    production_year  = COALESCE(?, production_year),
+                    rating           = COALESCE(?, rating),
+                    thumbnail_url    = COALESCE(?, thumbnail_url),
+                    images           = COALESCE(?, images)
                 WHERE id = ?
                 """,
                 (
-                    program.title,
+                    program.title if program.title else None,
                     program.episode_title,
                     program.plot,
-                    new_start,
-                    new_end,
                     program.genre,
+                    program.epg_id,
+                    program.schedule_id,
                     program.season_num,
                     program.episode_num,
+                    1 if program.has_episode_info else 0,
                     program.director,
                     json.dumps(program.cast) if program.cast else None,
                     program.producer,
                     str(program.year) if program.year else None,
                     str(program.rating) if program.rating is not None else None,
-                    program.thumbnail or (program.images.get("background") if program.images else None),
                     program.thumbnail,
                     json.dumps(program.images) if program.images else None,
                     existing_id,
                 ),
             )
-            logger.debug(f"Updated program {program.epg_id}: {program.title}")
+            logger.debug(f"Updated program at {new_start}: {program.title}")
             return "updated"
 
-        # Try to insert with ON CONFLICT handling for the unique constraint
-        # on (channel_id, start_time, end_time)
+        # No existing program at this time slot - insert new one
         try:
+            # Use INSERT OR IGNORE to handle any race conditions
             db.execute(
                 """
-                INSERT INTO programs (
+                INSERT OR IGNORE INTO programs (
                     channel_id, provider_id, start_time, end_time,
                     title, subtitle, description,
                     category, ultimate_epg_id, schedule_id,
@@ -565,23 +578,6 @@ class UltimateBackendImportService:
                     ?, ?, ?,
                     ?, ?, ?, ?
                 )
-                ON CONFLICT(channel_id, start_time, end_time) DO UPDATE SET
-                    title = COALESCE(excluded.title, title),
-                    subtitle = COALESCE(excluded.subtitle, subtitle),
-                    description = COALESCE(excluded.description, description),
-                    category = COALESCE(excluded.category, category),
-                    ultimate_epg_id = COALESCE(excluded.ultimate_epg_id, ultimate_epg_id),
-                    schedule_id = COALESCE(excluded.schedule_id, schedule_id),
-                    season_num = COALESCE(excluded.season_num, season_num),
-                    episode_num = COALESCE(excluded.episode_num, episode_num),
-                    has_episode_info = COALESCE(excluded.has_episode_info, has_episode_info),
-                    director = COALESCE(excluded.director, director),
-                    actors = COALESCE(excluded.actors, actors),
-                    producer = COALESCE(excluded.producer, producer),
-                    production_year = COALESCE(excluded.production_year, production_year),
-                    rating = COALESCE(excluded.rating, rating),
-                    thumbnail_url = COALESCE(excluded.thumbnail_url, thumbnail_url),
-                    images = COALESCE(excluded.images, images)
                 """,
                 (
                     logical_channel_id,
@@ -606,40 +602,88 @@ class UltimateBackendImportService:
                     json.dumps(program.images) if program.images else None,
                 ),
             )
-            # Check if it was an insert or update by looking at changes
+
+            # Check if insert succeeded
             changes = db.fetchone("SELECT changes()")
             if changes and changes[0] > 0:
                 logger.debug(f"Inserted program {program.epg_id}: {program.title}")
                 return "inserted"
             else:
-                # This was an update (no new row inserted)
-                logger.debug(f"Updated (conflict) program {program.epg_id}: {program.title}")
-                return "updated"
+                # Insert was ignored due to conflict - this means another process
+                # inserted the same program. Try to update it instead.
+                logger.debug(f"Program at {new_start} was inserted by another process, updating instead")
+
+                # Get the existing record
+                existing = db.fetchone(
+                    """
+                    SELECT id FROM programs 
+                    WHERE channel_id = ? AND start_time = ? AND end_time = ?
+                    """,
+                    (logical_channel_id, new_start, new_end),
+                )
+
+                if existing:
+                    db.execute(
+                        """
+                        UPDATE programs
+                        SET title = ?, subtitle = ?, description = ?,
+                            category = ?, ultimate_epg_id = ?, schedule_id = ?,
+                            season_num = ?, episode_num = ?, has_episode_info = ?,
+                            director = ?, actors = ?, producer = ?,
+                            production_year = ?, rating = ?, thumbnail_url = ?, images = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            program.title,
+                            program.episode_title,
+                            program.plot,
+                            program.genre,
+                            program.epg_id,
+                            program.schedule_id,
+                            program.season_num,
+                            program.episode_num,
+                            1 if program.has_episode_info else 0,
+                            program.director,
+                            json.dumps(program.cast) if program.cast else None,
+                            program.producer,
+                            str(program.year) if program.year else None,
+                            str(program.rating) if program.rating is not None else None,
+                            program.thumbnail,
+                            json.dumps(program.images) if program.images else None,
+                            existing[0],
+                        ),
+                    )
+                    return "updated"
+
+                return "skipped"
 
         except Exception as e:
-            # Fall back to checking if it exists by time slot
-            logger.warning(f"Upsert failed, checking by time slot: {e}")
-            existing_by_time = db.fetchone(
-                """
-                SELECT id FROM programs
-                WHERE channel_id = ? AND start_time = ? AND end_time = ?
-                """,
-                (logical_channel_id, new_start, new_end),
-            )
-
-            if existing_by_time:
-                # Update existing
+            logger.error(f"Failed to insert/update program {program.epg_id}: {e}")
+            # Last resort: try a direct INSERT OR REPLACE
+            try:
                 db.execute(
                     """
-                    UPDATE programs
-                    SET title = ?, subtitle = ?, description = ?,
-                        category = ?, ultimate_epg_id = ?, schedule_id = ?,
-                        season_num = ?, episode_num = ?, has_episode_info = ?,
-                        director = ?, actors = ?, producer = ?,
-                        production_year = ?, rating = ?, thumbnail_url = ?, images = ?
-                    WHERE id = ?
+                    INSERT OR REPLACE INTO programs (
+                        channel_id, provider_id, start_time, end_time,
+                        title, subtitle, description,
+                        category, ultimate_epg_id, schedule_id,
+                        season_num, episode_num, has_episode_info,
+                        director, actors, producer,
+                        production_year, rating, thumbnail_url, images
+                    ) VALUES (
+                        ?, ?, ?, ?,
+                        ?, ?, ?,
+                        ?, ?, ?,
+                        ?, ?, ?,
+                        ?, ?, ?,
+                        ?, ?, ?, ?
+                    )
                     """,
                     (
+                        logical_channel_id,
+                        provider_id,
+                        new_start,
+                        new_end,
                         program.title,
                         program.episode_title,
                         program.plot,
@@ -656,13 +700,13 @@ class UltimateBackendImportService:
                         str(program.rating) if program.rating is not None else None,
                         program.thumbnail,
                         json.dumps(program.images) if program.images else None,
-                        existing_by_time[0],
                     ),
                 )
+                logger.debug(f"Replaced program at {new_start}: {program.title}")
                 return "updated"
-
-            # Re-raise if we can't handle
-            raise
+            except Exception as e2:
+                logger.error(f"INSERT OR REPLACE also failed: {e2}")
+                raise
 
     # ------------------------------------------------------------------
     # Helpers
