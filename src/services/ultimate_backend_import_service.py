@@ -525,6 +525,7 @@ class UltimateBackendImportService:
                     producer         = ?,
                     production_year  = ?,
                     rating           = ?,
+                    icon_url         = ?,
                     thumbnail_url    = ?,
                     images           = ?,
                     updated_at       = CURRENT_TIMESTAMP
@@ -544,8 +545,9 @@ class UltimateBackendImportService:
                     program.producer,
                     str(program.year) if program.year else None,
                     str(program.rating) if program.rating is not None else None,
-                    program.thumbnail,
-                    json.dumps(program.images) if program.images else None,
+                    program.thumbnail or (program.images.get("background") if program.images else None),  # icon_url
+                    program.thumbnail,  # thumbnail_url
+                    json.dumps(program.images) if program.images else None,  # images
                     existing_id,
                 ),
             )
