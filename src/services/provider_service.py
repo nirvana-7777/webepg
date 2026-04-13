@@ -2,6 +2,7 @@
 Provider service for managing EPG data providers.
 """
 
+import json
 import logging
 from typing import List, Optional
 
@@ -99,7 +100,8 @@ class ProviderService:
             logger.error(f"Error updating provider {provider_id}: {e}")
             raise
 
-    def delete_provider(self, provider_id: int) -> bool:
+    @staticmethod
+    def delete_provider(provider_id: int) -> bool:
         """
         Delete a provider and all associated data.
 
@@ -128,7 +130,8 @@ class ProviderService:
             logger.error(f"Error deleting provider {provider_id}: {e}")
             raise
 
-    def get_provider(self, provider_id: int) -> Optional[Provider]:
+    @staticmethod
+    def get_provider(provider_id: int) -> Optional[Provider]:
         """
         Get provider by ID.
 
@@ -155,7 +158,8 @@ class ProviderService:
             logger.error(f"Error fetching provider {provider_id}: {e}")
             raise
 
-    def list_providers(self, enabled_only: bool = False) -> List[Provider]:
+    @staticmethod
+    def list_providers(enabled_only: bool = False) -> List[Provider]:
         """
         List all providers.
 
@@ -226,7 +230,8 @@ class ProviderService:
             logger.error(f"Error creating channel mapping: {e}")
             raise
 
-    def get_channel_mapping(self, mapping_id: int) -> Optional[ChannelMapping]:
+    @staticmethod
+    def get_channel_mapping(mapping_id: int) -> Optional[ChannelMapping]:
         """Get channel mapping by ID."""
         db = get_db()
 
@@ -241,8 +246,9 @@ class ProviderService:
             return ChannelMapping.from_db_row(row)
         return None
 
+    @staticmethod
     def get_channel_for_provider_channel(
-        self, provider_id: int, provider_channel_id: str
+        provider_id: int, provider_channel_id: str
     ) -> Optional[int]:
         """
         Get logical channel ID for a provider's channel ID.
@@ -271,4 +277,81 @@ class ProviderService:
                 f"Error getting channel mapping for provider {provider_id}, "
                 f"channel {provider_channel_id}: {e}"
             )
+            raise
+
+    def create_ultimate_provider(
+            self,
+            name: str,
+            display_name: str,
+            ultimate_instance_id: int,
+            plugin_name: str = None,
+            country: str = None,
+            logo_url: str = None,
+            has_epg: bool = True,
+            requires_credentials: bool = False,
+    ) -> Provider:
+        """Create a provider from Ultimate Backend."""
+        db = get_db()
+
+        sql = """
+            INSERT INTO providers (
+                name, display_name, source_type, ultimate_instance_id,
+                plugin_name, country, logo_url, has_epg, requires_credentials
+            ) VALUES (?, ?, 'ultimate_backend', ?, ?, ?, ?, ?, ?)
+        """
+
+        try:
+            with db.get_cursor() as cursor:
+                cursor.execute(
+                    sql,
+                    (
+                        name, display_name, ultimate_instance_id,
+                        plugin_name, country, logo_url,
+                        1 if has_epg else 0,
+                        1 if requires_credentials else 0,
+                    ),
+                )
+                provider_id = cursor.lastrowid
+
+            logger.info(f"Created Ultimate Backend provider: {name} (ID: {provider_id})")
+            return self.get_provider(provider_id)
+        except Exception as e:
+            logger.error(f"Error creating Ultimate provider '{name}': {e}")
+            raise
+
+    @staticmethod
+    def update_provider_auth_config(
+            provider_id: int, credential_type: str, **credentials
+    ) -> bool:
+        """Store provider credentials securely."""
+        db = get_db()
+
+        # Store credentials (in production, encrypt sensitive data)
+        token_data = credentials.get("token_data")
+
+        sql = """
+            INSERT OR REPLACE INTO provider_credentials (
+                provider_id, credential_type, username, password,
+                client_id, client_secret, api_key, token_data
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+        try:
+            db.execute(
+                sql,
+                (
+                    provider_id,
+                    credential_type,
+                    credentials.get("username"),
+                    credentials.get("password"),
+                    credentials.get("client_id"),
+                    credentials.get("client_secret"),
+                    credentials.get("api_key"),
+                    json.dumps(token_data) if token_data else None,
+                ),
+            )
+            logger.info(f"Updated credentials for provider {provider_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating credentials: {e}")
             raise

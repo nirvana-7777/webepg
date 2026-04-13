@@ -466,26 +466,24 @@ class UltimateBackendImportService:
         db = get_db()
 
         existing = db.fetchone(
-            """
-            SELECT id, title, start_time, end_time, description
-            FROM programs
-            WHERE ultimate_epg_id = ?
-            """,
+            "SELECT id, title, start_time, end_time, description FROM programs WHERE ultimate_epg_id = ?",
             (program.epg_id,),
         )
 
-        # Resolve (or lazily create) the provider row.
+        # Get or create provider using unified schema
         provider_row = db.fetchone(
-            "SELECT id FROM providers WHERE name = ?", (provider_name,)
+            "SELECT id FROM providers WHERE name = ? AND source_type = 'ultimate_backend'",
+            (provider_name,),
         )
+
         if not provider_row:
-            # FIXED: Removed 'display_name' column - it doesn't exist in the schema
+            # Create provider with NULL xmltv_url (allowed in v4)
             db.execute(
                 """
-                INSERT INTO providers (name)
-                VALUES (?)
+                INSERT INTO providers (name, display_name, source_type, has_epg)
+                VALUES (?, ?, 'ultimate_backend', 1)
                 """,
-                (provider_name,),
+                (provider_name, provider_name.replace('_', ' ').title()),
             )
             provider_row = db.fetchone("SELECT last_insert_rowid()")
 

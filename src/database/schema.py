@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SchemaManager:
     """Manages database schema creation and migrations."""
 
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
 
     SCHEMA_SQL = """
     -- Schema version tracking
@@ -184,10 +184,19 @@ class SchemaManager:
 
     @classmethod
     def _migrate_database(
-        cls, conn: sqlite3.Connection, from_version: int, to_version: int
+            cls, conn: sqlite3.Connection, from_version: int, to_version: int
     ):
         """Run database migrations."""
         logger.info(f"Migrating database from version {from_version} to {to_version}")
+
+        if from_version == 3 and to_version >= 4:
+            from ..database.migrations.v4_unified_providers import migrate_v3_to_v4
+            migrate_v3_to_v4(conn)
+
+            if to_version > 4:
+                # Continue with further migrations if needed
+                cls._migrate_database(conn, 4, to_version)
+            return
 
         if from_version == 2 and to_version == 3:
             from ..database.migrations.v3_ultimate_backend import \
