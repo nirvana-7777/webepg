@@ -608,17 +608,18 @@ class EPGService:
             """
             rows = db.fetchall(sql, (provider_id,))
         else:
-            # For Ultimate Backend providers, use ultimate_channel_mappings
+            # For Ultimate Backend providers, use ultimate_channel_mappings.
+            # Join via ultimate_providers.id using the provider's ultimate_instance_id,
+            # which stores the ultimate_providers.id (not the backend instance id).
             sql = """
                 SELECT c.id, c.name, c.display_name, c.icon_url, c.created_at
                 FROM channels c
                 JOIN ultimate_channel_mappings ucm ON c.id = ucm.channel_id
                 JOIN ultimate_channels uc ON ucm.ultimate_channel_id = uc.id
-                JOIN ultimate_providers up ON uc.ultimate_provider_id = up.id
-                WHERE up.provider_name = ?
+                WHERE uc.ultimate_provider_id = ?
                 ORDER BY c.display_name
             """
-            rows = db.fetchall(sql, (provider.name,))
+            rows = db.fetchall(sql, (provider.ultimate_instance_id,))
 
         return [Channel.from_db_row(row) for row in rows]
 
@@ -680,17 +681,16 @@ class EPGService:
                 )
                 channel_identifier_map[channel.id] = row[0] if row else str(channel.id)
         else:
-            # For Ultimate Backend, get ultimate_channel_id
+            # For Ultimate Backend, get ultimate_channel_id via ultimate_provider_id
             for channel in channels:
                 row = db.fetchone(
                     """
                     SELECT uc.ultimate_channel_id
                     FROM ultimate_channels uc
-                    JOIN ultimate_providers up ON uc.ultimate_provider_id = up.id
                     JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
-                    WHERE up.provider_name = ? AND ucm.channel_id = ?
+                    WHERE uc.ultimate_provider_id = ? AND ucm.channel_id = ?
                     """,
-                    (provider.name, channel.id),
+                    (provider.ultimate_instance_id, channel.id),
                 )
                 channel_identifier_map[channel.id] = row[0] if row else str(channel.id)
 

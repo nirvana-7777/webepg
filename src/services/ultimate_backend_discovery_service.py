@@ -144,43 +144,150 @@ class UltimateBackendDiscoveryService:
 
     @staticmethod
     async def _upsert_provider(
-        instance_id: int,
-        provider_name: str,
-        provider_label: str,
-        has_epg: bool,
+            instance_id: int,
+            provider_name: str,
+            provider_label: str,
+            has_epg: bool,
     ) -> int:
-        """Insert or update provider record."""
-        db = get_db()
+        """
+        Insert or update provider record in both ultimate_providers and providers tables.
 
+        Args:
+            instance_id: Ultimate Backend instance ID
+            provider_name: Provider name (unique identifier)
+            provider_label: Human-readable provider label
+            has_epg: Whether provider has EPG capability
+
+        Returns:
+            Provider ID from ultimate_providers table
+        """
+        db = get_db()
         now = datetime.utcnow().isoformat()
 
-        # Check if exists
+        # ======================================================================
+        # Step 1: Upsert to ultimate_providers table
+        # ======================================================================
+
+        # Check if exists in ultimate_providers
         row = db.fetchone(
             "SELECT id FROM ultimate_providers WHERE instance_id = ? AND provider_name = ?",
             (instance_id, provider_name),
         )
 
         if row:
+            # Update existing ultimate_providers record
             db.execute(
                 """
                 UPDATE ultimate_providers
-                SET provider_label = ?, has_epg = ?, updated_at = ?, last_discovered_at = ?
+                SET provider_label = ?,
+                    has_epg = ?,
+                    updated_at = ?,
+                    last_discovered_at = ?
                 WHERE id = ?
                 """,
                 (provider_label, 1 if has_epg else 0, now, now, row[0]),
             )
-            return row[0]
+            ultimate_provider_id = row[0]
+            logger.debug(f"Updated ultimate_provider: {provider_name} (ID: {ultimate_provider_id})")
         else:
-            db.execute(
+            # Insert new ultimate_providers record
+            cursor = db.execute(
                 """
                 INSERT INTO ultimate_providers (
-                    instance_id, provider_name, provider_label, has_epg, last_discovered_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    instance_id,
+                    provider_name,
+                    provider_label,
+                    has_epg,
+                    last_discovered_at,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (instance_id, provider_name, provider_label, 1 if has_epg else 0, now),
+                (instance_id, provider_name, provider_label, 1 if has_epg else 0, now, now, now),
             )
-            row = db.fetchone("SELECT last_insert_rowid()")
-            return row[0]
+            ultimate_provider_id = cursor.lastrowid
+            logger.info(f"Created ultimate_provider: {provider_name} (ID: {ultimate_provider_id})")
+
+        # ======================================================================
+        # Step 2: Sync to unified providers table
+        # ======================================================================
+
+        # Check if provider exists in providers table
+        existing_provider = db.fetchone(
+            "SELECT id, source_type FROM providers WHERE name = ?",
+            (provider_name,),
+        )
+
+        if existing_provider:
+            # Update existing provider record
+            db.execute(
+                """
+                UPDATE providers
+                SET display_name = ?,
+                    source_type = 'ultimate_backend',
+                    ultimate_instance_id = ?,
+                    has_epg = ?,
+                    enabled = 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (provider_label, instance_id, 1 if has_epg else 0, now, existing_provider[0]),
+            )
+            logger.debug(f"Updated providers table for: {provider_name}")
+        else:
+            # Insert new provider record
+            db.execute(
+                """
+                INSERT INTO providers (
+                    name,
+                    display_name,
+                    source_type,
+                    ultimate_instance_id,
+                    has_epg,
+                    enabled,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, 'ultimate_backend', ?, ?, 1, ?, ?)
+                """,
+                (provider_name, provider_label, instance_id, 1 if has_epg else 0, now, now),
+            )
+            logger.info(f"Created providers table entry for: {provider_name}")
+
+        # ======================================================================
+        # Step 3: Also ensure provider_epg_config exists for EPG-enabled providers
+        # ======================================================================
+
+        if has_epg:
+            # Check if EPG config exists
+            epg_config_exists = db.fetchone(
+                "SELECT id FROM provider_epg_config WHERE provider_id = (SELECT id FROM providers WHERE name = ?)",
+                (provider_name,),
+            )
+
+            if not epg_config_exists:
+                # Get the provider ID from providers table
+                provider_row = db.fetchone("SELECT id FROM providers WHERE name = ?", (provider_name,))
+                if provider_row:
+                    db.execute(
+                        """
+                        INSERT INTO provider_epg_config (
+                            provider_id,
+                            future_days,
+                            past_days,
+                            chunk_hours,
+                            max_requests_per_second,
+                            max_concurrent_channels,
+                            max_retries,
+                            timeout_seconds,
+                            created_at,
+                            updated_at
+                        ) VALUES (?, 7, 7, 24, 5.0, 3, 3, 30, ?, ?)
+                        """,
+                        (provider_row[0], now, now),
+                    )
+                    logger.debug(f"Created EPG config for provider: {provider_name}")
+
+        return ultimate_provider_id
 
     async def _process_channel(
             self,
