@@ -5,6 +5,7 @@ Version 4 → 5
 
 import logging
 import sqlite3
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -25,25 +26,38 @@ def migrate_v4_to_v5(db_or_path):
 
         # Check if updated_at column exists in channels table
         cursor.execute("PRAGMA table_info(channels)")
-        columns = [row[1] for row in cursor.fetchall()]
+        columns = {row[1] for row in cursor.fetchall()}
 
         if "updated_at" not in columns:
-            cursor.execute(
-                "ALTER TABLE channels ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP"
-            )
-            logger.info("Added updated_at column to channels table")
+            # Add column without default first (NULL allowed)
+            cursor.execute("ALTER TABLE channels ADD COLUMN updated_at TEXT")
+            logger.info("Added updated_at column to channels table (NULLable)")
+
+            # Then update existing rows with current timestamp
+            now = datetime.now(timezone.utc).isoformat()
+            cursor.execute("UPDATE channels SET updated_at = ? WHERE updated_at IS NULL", (now,))
+            logger.info(f"Set updated_at for {cursor.rowcount} existing rows")
+
+            # Now add the default for future inserts
+            # SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+            # or just handle defaults in code. For simplicity, we'll skip the DEFAULT
+            # and handle it in the application code.
+            logger.info("Note: updated_at default must be handled by application code")
         else:
             logger.info("updated_at column already exists in channels table")
 
-        # Also check ultimate_channels table (created in v3 migration)
+        # Also check ultimate_channels table
         cursor.execute("PRAGMA table_info(ultimate_channels)")
-        columns = [row[1] for row in cursor.fetchall()]
+        columns = {row[1] for row in cursor.fetchall()}
 
         if "updated_at" not in columns:
-            cursor.execute(
-                "ALTER TABLE ultimate_channels ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP"
-            )
-            logger.info("Added updated_at column to ultimate_channels table")
+            cursor.execute("ALTER TABLE ultimate_channels ADD COLUMN updated_at TEXT")
+            logger.info("Added updated_at column to ultimate_channels table (NULLable)")
+
+            # Update existing rows
+            now = datetime.now(timezone.utc).isoformat()
+            cursor.execute("UPDATE ultimate_channels SET updated_at = ? WHERE updated_at IS NULL", (now,))
+            logger.info(f"Set updated_at for {cursor.rowcount} existing rows in ultimate_channels")
         else:
             logger.info("updated_at column already exists in ultimate_channels table")
 
