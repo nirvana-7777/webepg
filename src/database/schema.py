@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SchemaManager:
     """Manages database schema creation and migrations."""
 
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 5
 
     SCHEMA_SQL = """
     -- Schema version tracking
