@@ -2,7 +2,8 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Fix discovery of channels">
-      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_discovery_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_discovery_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/schema.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/schema.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -107,30 +108,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00010" summary="Introduce Channel Aliases">
-      <option name="closed" value="true" />
-      <created>1767444189303</created>
-      <option name="number" value="00010" />
-      <option name="presentableId" value="LOCAL-00010" />
-      <option name="project" value="LOCAL" />
-      <updated>1767444189303</updated>
-    </task>
-    <task id="LOCAL-00011" summary="Introduce Channel Aliases">
-      <option name="closed" value="true" />
-      <created>1767715802607</created>
-      <option name="number" value="00011" />
-      <option name="presentableId" value="LOCAL-00011" />
-      <option name="project" value="LOCAL" />
-      <updated>1767715802607</updated>
-    </task>
-    <task id="LOCAL-00012" summary="Introduce Channel Aliases">
-      <option name="closed" value="true" />
-      <created>1768070536758</created>
-      <option name="number" value="00012" />
-      <option name="presentableId" value="LOCAL-00012" />
-      <option name="project" value="LOCAL" />
-      <updated>1768070536758</updated>
     </task>
     <task id="LOCAL-00013" summary="Introduce Channel Aliases">
       <option name="closed" value="true" />
@@ -500,7 +477,31 @@
       <option name="project" value="LOCAL" />
       <updated>1776108107668</updated>
     </task>
-    <option name="localTasksCounter" value="59" />
+    <task id="LOCAL-00059" summary="Fix discovery of channels">
+      <option name="closed" value="true" />
+      <created>1776109566487</created>
+      <option name="number" value="00059" />
+      <option name="presentableId" value="LOCAL-00059" />
+      <option name="project" value="LOCAL" />
+      <updated>1776109566488</updated>
+    </task>
+    <task id="LOCAL-00060" summary="Fix discovery of channels">
+      <option name="closed" value="true" />
+      <created>1776109681815</created>
+      <option name="number" value="00060" />
+      <option name="presentableId" value="LOCAL-00060" />
+      <option name="project" value="LOCAL" />
+      <updated>1776109681815</updated>
+    </task>
+    <task id="LOCAL-00061" summary="Fix discovery of channels">
+      <option name="closed" value="true" />
+      <created>1776109747233</created>
+      <option name="number" value="00061" />
+      <option name="presentableId" value="LOCAL-00061" />
+      <option name="project" value="LOCAL" />
+      <updated>1776109747233</updated>
+    </task>
+    <option name="localTasksCounter" value="62" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

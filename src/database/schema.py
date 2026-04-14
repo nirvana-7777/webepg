@@ -189,6 +189,16 @@ class SchemaManager:
         """Run database migrations."""
         logger.info(f"Migrating database from version {from_version} to {to_version}")
 
+        # Add migration for v4 to v5
+        if from_version == 4 and to_version >= 5:
+            from ..database.migrations.v5_add_channel_updated_at import migrate_v4_to_v5
+            migrate_v4_to_v5(conn)
+
+            if to_version > 5:
+                # Continue with further migrations if needed
+                cls._migrate_database(conn, 5, to_version)
+            return
+
         if from_version == 3 and to_version >= 4:
             from ..database.migrations.v4_unified_providers import migrate_v3_to_v4
             migrate_v3_to_v4(conn)
