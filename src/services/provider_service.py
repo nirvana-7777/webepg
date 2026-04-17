@@ -144,7 +144,7 @@ class ProviderService:
         db = get_db()
 
         sql = """
-              SELECT id, name, xmltv_url, enabled, created_at, updated_at
+              SELECT *
               FROM providers
               WHERE id = ? \
               """
@@ -172,7 +172,7 @@ class ProviderService:
         db = get_db()
 
         sql = """
-              SELECT id, name, xmltv_url, enabled, created_at, updated_at
+              SELECT *
               FROM providers \
               """
 

@@ -17,7 +17,7 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 from ..clients.models import UltimateBackendProgram
@@ -214,7 +214,7 @@ class UltimateBackendImportService:
             (ultimate_channel_db_id,),
         )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Determine start of the fetch window.
         if force_full or not state or not state[0]:
@@ -292,7 +292,7 @@ class UltimateBackendImportService:
                     """,
                     (
                         new_cursor.isoformat(),
-                        datetime.utcnow().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                         chunk_stats["inserted"] + chunk_stats["updated"],
                         ultimate_channel_db_id,
                     ),
@@ -315,8 +315,8 @@ class UltimateBackendImportService:
                 WHERE ultimate_channel_id = ?
                 """,
                 (
-                    datetime.utcnow().isoformat(),
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     ultimate_channel_db_id,
                 ),
             )
@@ -339,7 +339,7 @@ class UltimateBackendImportService:
                 """,
                 (
                     error_msg[:500],
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     ultimate_channel_db_id,
                 ),
             )

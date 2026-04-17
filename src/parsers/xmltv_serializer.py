@@ -209,22 +209,50 @@ class XMLTVSerializer:
             country = SubElement(prog_elem, "country")
             country.text = program["country"]
 
-        # Episode number
-        episode_num = program.get("episode_num")
-        if episode_num:
-            episode = SubElement(prog_elem, "episode-num")
-            episode.text = episode_num
-            episode.set("system", "onscreen")
+        # Episode numbering: avoid duplicate <episode-num> elements.
+        # Strategy:
+        #   1. If we have numeric season_num AND episode_num from Ultimate Backend,
+        #      emit BOTH onscreen (human-readable) AND xmltv_ns (machine-readable).
+        #   2. If we only have a raw episode_num string, emit only onscreen.
+        season_num = program.get("season_num")
+        raw_episode_num = program.get("episode_num")
 
-        # Episode number from Ultimate Backend (season_num, episode_num)
-        if program.get("season_num") is not None or program.get("episode_num"):
-            season = program.get("season_num", 0)
-            episode = program.get("episode_num", 0)
-            # xmltv_ns format: season.episode.0/1
-            ns_episode = f"{season} . {episode} . 0/1"
-            episode_ns = SubElement(prog_elem, "episode-num")
-            episode_ns.text = ns_episode
-            episode_ns.set("system", "xmltv_ns")
+        has_structured_episode = (
+            season_num is not None and raw_episode_num is not None
+        )
+
+        if has_structured_episode:
+            # Check if both values are integers (not just strings like "E05")
+            try:
+                season_int = int(season_num)
+                episode_int = int(raw_episode_num)
+
+                # xmltv_ns uses 0-based indexing: (season-1).(episode-1).0/1
+                ns_season = max(season_int - 1, 0)
+                ns_episode_num = max(episode_int - 1, 0)
+                ns_value = f"{ns_season}.{ns_episode_num}.0/1"
+
+                # Emit xmltv_ns (machine-readable, 0-based)
+                episode_ns = SubElement(prog_elem, "episode-num")
+                episode_ns.text = ns_value
+                episode_ns.set("system", "xmltv_ns")
+
+                # Also emit onscreen with human-readable 1-based format
+                episode_onscreen = SubElement(prog_elem, "episode-num")
+                episode_onscreen.text = f"S{season_int:02d}E{episode_int:02d}"
+                episode_onscreen.set("system", "onscreen")
+
+            except (ValueError, TypeError):
+                # Values are not integers — fall back to onscreen only
+                if raw_episode_num:
+                    episode = SubElement(prog_elem, "episode-num")
+                    episode.text = str(raw_episode_num)
+                    episode.set("system", "onscreen")
+        elif raw_episode_num:
+            # Only raw episode number available — emit onscreen only
+            episode = SubElement(prog_elem, "episode-num")
+            episode.text = str(raw_episode_num)
+            episode.set("system", "onscreen")
 
         # New flag (from has_episode_info or epg_flags)
         if program.get("has_episode_info") or program.get("epg_flags"):

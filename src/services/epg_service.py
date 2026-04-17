@@ -609,8 +609,20 @@ class EPGService:
             rows = db.fetchall(sql, (provider_id,))
         else:
             # For Ultimate Backend providers, use ultimate_channel_mappings.
-            # Join via ultimate_providers.id using the provider's ultimate_instance_id,
-            # which stores the ultimate_providers.id (not the backend instance id).
+            # We need the ID from ultimate_providers table.
+            up_row = db.fetchone(
+                "SELECT id FROM ultimate_providers WHERE instance_id = ? AND provider_name = ?",
+                (provider.ultimate_instance_id, provider.name),
+            )
+            ultimate_provider_id = up_row[0] if up_row else None
+
+            if not ultimate_provider_id:
+                logger.warning(
+                    f"Could not find ultimate_provider for {provider.name} "
+                    f"(instance: {provider.ultimate_instance_id})"
+                )
+                return []
+
             sql = """
                 SELECT c.id, c.name, c.display_name, c.icon_url, c.created_at
                 FROM channels c
@@ -619,7 +631,7 @@ class EPGService:
                 WHERE uc.ultimate_provider_id = ?
                 ORDER BY c.display_name
             """
-            rows = db.fetchall(sql, (provider.ultimate_instance_id,))
+            rows = db.fetchall(sql, (ultimate_provider_id,))
 
         return [Channel.from_db_row(row) for row in rows]
 
@@ -682,17 +694,29 @@ class EPGService:
                 channel_identifier_map[channel.id] = row[0] if row else str(channel.id)
         else:
             # For Ultimate Backend, get ultimate_channel_id via ultimate_provider_id
-            for channel in channels:
-                row = db.fetchone(
-                    """
-                    SELECT uc.ultimate_channel_id
-                    FROM ultimate_channels uc
-                    JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
-                    WHERE uc.ultimate_provider_id = ? AND ucm.channel_id = ?
-                    """,
-                    (provider.ultimate_instance_id, channel.id),
-                )
-                channel_identifier_map[channel.id] = row[0] if row else str(channel.id)
+            up_row = db.fetchone(
+                "SELECT id FROM ultimate_providers WHERE instance_id = ? AND provider_name = ?",
+                (provider.ultimate_instance_id, provider.name),
+            )
+            ultimate_provider_id = up_row[0] if up_row else None
+
+            if ultimate_provider_id:
+                for channel in channels:
+                    row = db.fetchone(
+                        """
+                        SELECT uc.ultimate_channel_id
+                        FROM ultimate_channels uc
+                        JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
+                        WHERE uc.ultimate_provider_id = ? AND ucm.channel_id = ?
+                        """,
+                        (ultimate_provider_id, channel.id),
+                    )
+                    channel_identifier_map[channel.id] = (
+                        row[0] if row else str(channel.id)
+                    )
+            else:
+                for channel in channels:
+                    channel_identifier_map[channel.id] = str(channel.id)
 
         # Get programs for these channels
         placeholders = ",".join(["?"] * len(channel_ids))

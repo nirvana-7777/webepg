@@ -277,19 +277,46 @@ class Provider:
 
     id: Optional[int] = None
     name: str = ""
-    xmltv_url: str = ""
+    display_name: Optional[str] = None
+    source_type: str = "xmltv"
+    xmltv_url: Optional[str] = None
+    ultimate_instance_id: Optional[int] = None
+    ultimate_provider_name: Optional[str] = None
+    plugin_name: Optional[str] = None
+    country: Optional[str] = None
+    logo_url: Optional[str] = None
+    has_epg: bool = True
+    requires_credentials: bool = False
     enabled: bool = True
+    instance_ready: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     @classmethod
     def from_db_row(cls, row) -> "Provider":
         """Create Provider from database row."""
+
+        def _safe(key, default=None):
+            try:
+                return row[key]
+            except (IndexError, KeyError):
+                return default
+
         return cls(
             id=row["id"],
             name=row["name"],
-            xmltv_url=row["xmltv_url"],
+            display_name=_safe("display_name"),
+            source_type=_safe("source_type", "xmltv"),
+            xmltv_url=_safe("xmltv_url"),
+            ultimate_instance_id=_safe("ultimate_instance_id"),
+            ultimate_provider_name=_safe("ultimate_provider_name"),
+            plugin_name=_safe("plugin_name"),
+            country=_safe("country"),
+            logo_url=_safe("logo_url"),
+            has_epg=bool(_safe("has_epg", True)),
+            requires_credentials=bool(_safe("requires_credentials", False)),
             enabled=bool(row["enabled"]),
+            instance_ready=bool(_safe("instance_ready", True)),
             created_at=(
                 datetime.fromisoformat(row["created_at"]) if row["created_at"] else None
             ),
@@ -303,8 +330,18 @@ class Provider:
         return {
             "id": self.id,
             "name": self.name,
+            "display_name": self.display_name,
+            "source_type": self.source_type,
             "xmltv_url": self.xmltv_url,
+            "ultimate_instance_id": self.ultimate_instance_id,
+            "ultimate_provider_name": self.ultimate_provider_name,
+            "plugin_name": self.plugin_name,
+            "country": self.country,
+            "logo_url": self.logo_url,
+            "has_epg": self.has_epg,
+            "requires_credentials": self.requires_credentials,
             "enabled": self.enabled,
+            "instance_ready": self.instance_ready,
             "created_at": to_utc_isoformat(self.created_at),
             "updated_at": to_utc_isoformat(self.updated_at),
         }
