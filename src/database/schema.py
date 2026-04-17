@@ -169,14 +169,20 @@ class SchemaManager:
 
             # Record schema version
             current_version = cls._get_schema_version(conn)
+
             if current_version is None:
+                # No version table or no version recorded - insert current version
                 conn.execute(
                     "INSERT INTO schema_version (version) VALUES (?)",
                     (cls.SCHEMA_VERSION,),
                 )
+                logger.info(f"Initialized database with schema version {cls.SCHEMA_VERSION}")
             elif current_version < cls.SCHEMA_VERSION:
-                # Run migrations
+                # Run migrations sequentially
+                logger.info(f"Database at version {current_version}, migrating to {cls.SCHEMA_VERSION}")
                 cls._migrate_database(conn, current_version, cls.SCHEMA_VERSION)
+            else:
+                logger.info(f"Database already at version {current_version}")
 
             conn.commit()
         finally:
@@ -186,68 +192,125 @@ class SchemaManager:
     def _migrate_database(
             cls, conn: sqlite3.Connection, from_version: int, to_version: int
     ):
-        """Run database migrations."""
+        """
+        Run database migrations sequentially from from_version to to_version.
+
+        This method recursively calls itself to ensure all migrations run in order.
+        """
         logger.info(f"Migrating database from version {from_version} to {to_version}")
 
-        # Add migration for v4 to v5
-        if from_version == 4 and to_version >= 5:
-            from ..database.migrations.v5_add_channel_updated_at import migrate_v4_to_v5
-            migrate_v4_to_v5(conn)
+        # Migration: version 1 -> 2
+        if from_version == 1 and to_version >= 2:
+            logger.info("Applying migration 1 -> 2")
+            cls._migrate_v1_to_v2(conn)
 
-            if to_version > 5:
-                # Continue with further migrations if needed
-                cls._migrate_database(conn, 5, to_version)
+            # Update version to 2
+            cls._update_schema_version(conn, 2)
+
+            # Continue to next migration if needed
+            if to_version > 2:
+                cls._migrate_database(conn, 2, to_version)
             return
 
+        # Migration: version 2 -> 3
+        if from_version == 2 and to_version >= 3:
+            logger.info("Applying migration 2 -> 3")
+            from ..database.migrations.v3_ultimate_backend import migrate_v2_to_v3
+            migrate_v2_to_v3(conn)
+
+            # Update version to 3
+            cls._update_schema_version(conn, 3)
+
+            # Continue to next migration if needed
+            if to_version > 3:
+                cls._migrate_database(conn, 3, to_version)
+            return
+
+        # Migration: version 3 -> 4
         if from_version == 3 and to_version >= 4:
+            logger.info("Applying migration 3 -> 4")
             from ..database.migrations.v4_unified_providers import migrate_v3_to_v4
             migrate_v3_to_v4(conn)
 
+            # Update version to 4
+            cls._update_schema_version(conn, 4)
+
+            # Continue to next migration if needed
             if to_version > 4:
-                # Continue with further migrations if needed
                 cls._migrate_database(conn, 4, to_version)
             return
 
-        if from_version == 2 and to_version == 3:
-            from ..database.migrations.v3_ultimate_backend import \
-                migrate_v2_to_v3
+        # Migration: version 4 -> 5
+        if from_version == 4 and to_version >= 5:
+            logger.info("Applying migration 4 -> 5")
+            from ..database.migrations.v5_add_channel_updated_at import migrate_v4_to_v5
+            migrate_v4_to_v5(conn)
 
-            migrate_v2_to_v3(conn)
+            # Update version to 5
+            cls._update_schema_version(conn, 5)
+
+            # Continue to next migration if needed
+            if to_version > 5:
+                cls._migrate_database(conn, 5, to_version)
             return
 
-        if from_version == 1 and to_version == 2:
-            # Run migration from v1 to v2
-            cursor = conn.cursor()
+        # If we get here, no migration path was found
+        if from_version < to_version:
+            logger.error(f"No migration path from version {from_version} to {to_version}")
+            raise ValueError(f"Cannot migrate from version {from_version} to {to_version}")
 
-            # Add new columns - check if they exist first to make migration idempotent
-            new_columns = [
-                ("presenters", "TEXT"),
-                ("writers", "TEXT"),
-                ("producers", "TEXT"),
-                ("production_year", "TEXT"),
-                ("country", "TEXT"),
-            ]
+    @classmethod
+    def _migrate_v1_to_v2(cls, conn: sqlite3.Connection):
+        """Migration from version 1 to 2."""
+        cursor = conn.cursor()
 
-            for column_name, column_type in new_columns:
-                # Check if column already exists
-                cursor.execute("PRAGMA table_info(programs)")
-                existing_columns = [row[1] for row in cursor.fetchall()]
+        # Add new columns - check if they exist first to make migration idempotent
+        new_columns = [
+            ("presenters", "TEXT"),
+            ("writers", "TEXT"),
+            ("producers", "TEXT"),
+            ("production_year", "TEXT"),
+            ("country", "TEXT"),
+        ]
 
-                if column_name not in existing_columns:
-                    cursor.execute(
-                        f"ALTER TABLE programs ADD COLUMN {column_name} {column_type}"
-                    )
-                    logger.info(f"Added column {column_name} to programs table")
-                else:
-                    logger.info(f"Column {column_name} already exists, skipping")
+        for column_name, column_type in new_columns:
+            # Check if column already exists
+            cursor.execute("PRAGMA table_info(programs)")
+            existing_columns = [row[1] for row in cursor.fetchall()]
 
-            # Update schema version
+            if column_name not in existing_columns:
+                cursor.execute(
+                    f"ALTER TABLE programs ADD COLUMN {column_name} {column_type}"
+                )
+                logger.info(f"Added column {column_name} to programs table")
+            else:
+                logger.info(f"Column {column_name} already exists, skipping")
+
+        conn.commit()
+        logger.info("Migration to version 2 completed")
+
+    @classmethod
+    def _update_schema_version(cls, conn: sqlite3.Connection, version: int):
+        """Update or insert the schema version."""
+        cursor = conn.cursor()
+
+        # Check if version already exists
+        cursor.execute("SELECT 1 FROM schema_version WHERE version = ?", (version,))
+        if cursor.fetchone():
+            # Version already recorded, update timestamp
             cursor.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (to_version,)
+                "UPDATE schema_version SET applied_at = CURRENT_TIMESTAMP WHERE version = ?",
+                (version,)
+            )
+        else:
+            # Insert new version
+            cursor.execute(
+                "INSERT INTO schema_version (version) VALUES (?)",
+                (version,)
             )
 
-            conn.commit()
-            logger.info("Migration to version 2 completed")
+        conn.commit()
+        logger.info(f"Schema version updated to {version}")
 
     @classmethod
     def _get_schema_version(cls, conn: sqlite3.Connection) -> Optional[int]:
@@ -255,8 +318,9 @@ class SchemaManager:
         try:
             cursor = conn.execute("SELECT MAX(version) FROM schema_version")
             result = cursor.fetchone()
-            return result[0] if result else None
+            return result[0] if result and result[0] is not None else None
         except sqlite3.OperationalError:
+            # Table doesn't exist yet
             return None
 
     @classmethod
@@ -273,6 +337,14 @@ class SchemaManager:
         conn = sqlite3.connect(db_path)
         try:
             current_version = cls._get_schema_version(conn)
-            return current_version == cls.SCHEMA_VERSION
+            is_current = current_version == cls.SCHEMA_VERSION
+
+            if not is_current:
+                logger.warning(
+                    f"Schema verification failed: current version={current_version}, "
+                    f"expected={cls.SCHEMA_VERSION}"
+                )
+
+            return is_current
         finally:
             conn.close()

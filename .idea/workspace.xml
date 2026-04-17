@@ -6,11 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Add updated_at to channels">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/database/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/parsers/xmltv_serializer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/parsers/xmltv_serializer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/epg_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/epg_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/provider_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/provider_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/database/schema.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/schema.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -124,14 +120,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00018" summary="Introduce Channel Aliases">
-      <option name="closed" value="true" />
-      <created>1768229673961</created>
-      <option name="number" value="00018" />
-      <option name="presentableId" value="LOCAL-00018" />
-      <option name="project" value="LOCAL" />
-      <updated>1768229673962</updated>
     </task>
     <task id="LOCAL-00019" summary="Introduce Channel Aliases">
       <option name="closed" value="true" />
@@ -517,7 +505,15 @@
       <option name="project" value="LOCAL" />
       <updated>1776183717109</updated>
     </task>
-    <option name="localTasksCounter" value="67" />
+    <task id="LOCAL-00067" summary="Add updated_at to channels">
+      <option name="closed" value="true" />
+      <created>1776416288803</created>
+      <option name="number" value="00067" />
+      <option name="presentableId" value="LOCAL-00067" />
+      <option name="project" value="LOCAL" />
+      <updated>1776416288804</updated>
+    </task>
+    <option name="localTasksCounter" value="68" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
