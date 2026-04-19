@@ -104,10 +104,10 @@ class UltimateBackendImportService:
                     ultimate_channel_id=row["channel_id"],
                     logical_channel_id=row["logical_channel_id"],
                     channel_name=row["channel_name"],
-                    # force_full=True is redundant here because we already
-                    # reset last_imported_until above, but it makes the
-                    # intent explicit and future-proofs the call.
                     force_full=True,
+                    provider_future_days=row.get("future_days"),
+                    provider_past_days=row.get("past_days"),
+                    provider_chunk_hours=row.get("chunk_hours"),
                 )
                 for row in rows
             ]
@@ -149,6 +149,9 @@ class UltimateBackendImportService:
                     ultimate_channel_id=row["channel_id"],
                     logical_channel_id=row["logical_channel_id"],
                     channel_name=row["channel_name"],
+                    provider_future_days=row.get("future_days"),
+                    provider_past_days=row.get("past_days"),
+                    provider_chunk_hours=row.get("chunk_hours"),
                 )
                 for row in rows
             ]
@@ -175,6 +178,10 @@ class UltimateBackendImportService:
         logical_channel_id: int,
         channel_name: str,
         force_full: bool = False,
+        # Configuration overrides from database
+        provider_future_days: Optional[int] = None,
+        provider_past_days: Optional[int] = None,
+        provider_chunk_hours: Optional[int] = None,
     ) -> Dict:
         """
         Import a single channel, either fully or incrementally.
@@ -194,6 +201,16 @@ class UltimateBackendImportService:
             f"{'Full' if force_full else 'Incremental'} import: "
             f"{channel_name} ({provider_name}/{ultimate_channel_id})"
         )
+
+        # Use provider-specific settings if provided, else fall back to service defaults
+        effective_past_days = provider_past_days if provider_past_days is not None else self.past_days
+        effective_future_days = provider_future_days if provider_future_days is not None else self.future_days
+        effective_chunk_hours = provider_chunk_hours if provider_chunk_hours is not None else self.chunk_hours
+
+        # Clamp future window to the API hard cap (currently 3 days).
+        # NOTE: We keep self.api_max_future_days as a safety cap unless 
+        # the provider explicitly knows better.
+        clamped_future_days = min(effective_future_days, self.api_max_future_days)
 
         stats: Dict = {
             "channel_id": ultimate_channel_db_id,
@@ -218,17 +235,15 @@ class UltimateBackendImportService:
 
         # Determine start of the fetch window.
         if force_full or not state or not state[0]:
-            start_time = now - timedelta(days=self.past_days)
+            start_time = now - timedelta(days=effective_past_days)
             last_imported: Optional[datetime] = None
-            logger.info(f"  Window start: {start_time.isoformat()} (full)")
+            logger.info(f"  Window start: {start_time.isoformat()} (full, days={effective_past_days})")
         else:
             last_imported = self._parse_datetime_safe(state[0])
             start_time = last_imported
             logger.info(f"  Window start: {start_time.isoformat()} (incremental)")
 
-        # Clamp future window to the API hard cap.
-        effective_future_days = min(self.future_days, self.api_max_future_days)
-        end_target = now + timedelta(days=effective_future_days)
+        end_target = now + timedelta(days=clamped_future_days)
 
         # Mark in-progress.
         db.execute(
@@ -244,7 +259,7 @@ class UltimateBackendImportService:
 
         try:
             while current < end_target:
-                chunk_end = min(current + timedelta(hours=self.chunk_hours), end_target)
+                chunk_end = min(current + timedelta(hours=effective_chunk_hours), end_target)
 
                 # Skip chunks already covered by a previous run.
                 if last_imported is not None and chunk_end <= last_imported:
@@ -714,17 +729,22 @@ class UltimateBackendImportService:
 
     @staticmethod
     def _fetch_active_channel_rows(db) -> list:
-        """Return all enabled channels that have a logical channel mapping."""
-        return db.fetchall("""
+        """Return all enabled channels that have a logical channel mapping, including EPG config."""
+        return db.fetchall_as_dict("""
             SELECT
                 uc.id                   AS ultimate_channel_id,
                 uc.ultimate_channel_id  AS channel_id,
                 uc.channel_name,
                 up.provider_name,
-                ucm.channel_id          AS logical_channel_id
+                ucm.channel_id          AS logical_channel_id,
+                pec.future_days,
+                pec.past_days,
+                pec.chunk_hours
             FROM ultimate_channels uc
             JOIN ultimate_providers up  ON uc.ultimate_provider_id = up.id
             JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
+            JOIN providers p ON p.name = up.provider_name AND p.source_type = 'ultimate_backend'
+            LEFT JOIN provider_epg_config pec ON p.id = pec.provider_id
             WHERE uc.enabled = 1 AND up.enabled = 1
         """)
 

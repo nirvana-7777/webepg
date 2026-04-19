@@ -657,16 +657,26 @@ class EPGService:
         now = self._now_utc()
         today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Set default time range if not specified
-        if start_time is None:
-            start_time = today_midnight - timedelta(days=7)
-        if end_time is None:
-            end_time = today_midnight + timedelta(days=7)
-
         # Get provider
         provider = self.provider_service.get_provider(provider_id)
         if not provider:
             return [], []
+
+        # Set default time range if not specified, preferring provider config if available
+        if start_time is None or end_time is None:
+            db = get_db()
+            epg_config = db.fetchone(
+                "SELECT future_days, past_days FROM provider_epg_config WHERE provider_id = ?",
+                (provider_id,)
+            )
+            
+            if start_time is None:
+                past_days = epg_config[1] if epg_config else 7
+                start_time = today_midnight - timedelta(days=past_days)
+            
+            if end_time is None:
+                future_days = epg_config[0] if epg_config else 7
+                end_time = today_midnight + timedelta(days=future_days)
 
         source_type: str = getattr(provider, "source_type", "xmltv")
 

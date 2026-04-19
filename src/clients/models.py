@@ -49,14 +49,14 @@ class UltimateBackendChannel:
     @classmethod
     def from_api_response(cls, data: dict) -> "UltimateBackendChannel":
         # Safely coerce channel_number: missing, null, or non-integer all → 0
-        raw_number = data.get("ChannelNumber")
+        raw_number = data.get("ChannelNumber", data.get("channel_number"))
         try:
             channel_number = int(raw_number) if raw_number is not None else 0
         except (ValueError, TypeError):
             channel_number = 0
 
         # Safely coerce catchup_hours: fall back to provider-level value if present
-        raw_catchup = data.get("CatchupHours")
+        raw_catchup = data.get("CatchupHours", data.get("catchup_hours"))
         try:
             catchup_hours = int(raw_catchup) if raw_catchup is not None else 168
         except (ValueError, TypeError):
@@ -68,10 +68,51 @@ class UltimateBackendChannel:
             logo_url=data.get("LogoUrl", data.get("logo_url")),
             channel_number=channel_number,
             catchup_hours=catchup_hours,
-            live_id=data.get("LiveId"),
-            stream_uid=data.get("StreamUid"),
+            live_id=data.get("LiveId", data.get("live_id")),
+            stream_uid=data.get("StreamUid", data.get("stream_uid")),
             country=data.get("Country", data.get("country")),
             language=data.get("Language", data.get("language")),
+        )
+
+
+@dataclass
+class EPGWindow:
+    """EPG window information from Ultimate Backend API."""
+    past_days: int = 7
+    future_days: int = 7
+    implements_epg: bool = True
+
+    @classmethod
+    def from_api_response(cls, data: Optional[dict]) -> "EPGWindow":
+        if not data:
+            return cls()
+        return cls(
+            past_days=data.get("past_days", 7),
+            future_days=data.get("future_days", 7),
+            implements_epg=data.get("implements_epg", True),
+        )
+
+
+@dataclass
+class UltimateBackendChannelList:
+    """Wrapped channel list with provider-level EPG info."""
+    provider: str
+    country: Optional[str]
+    catchup_window_hours: int
+    epg_window: EPGWindow
+    channels: List[UltimateBackendChannel]
+
+    @classmethod
+    def from_api_response(cls, data: dict) -> "UltimateBackendChannelList":
+        epg_window_data = data.get("epg_window")
+        channels_data = data.get("channels", [])
+
+        return cls(
+            provider=data.get("provider", ""),
+            country=data.get("country"),
+            catchup_window_hours=data.get("catchup_window_hours", 0),
+            epg_window=EPGWindow.from_api_response(epg_window_data),
+            channels=[UltimateBackendChannel.from_api_response(c) for c in channels_data],
         )
 
 

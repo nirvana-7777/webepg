@@ -68,41 +68,42 @@ class UltimateBackendDiscoveryService:
 
                 logger.info(f"Discovering provider: {provider_name}")
 
-                # Check if provider has EPG
-                has_epg = await self.client.has_epg(provider_name)
-
-                if not has_epg:
-                    logger.debug(f"Provider {provider_name} has no EPG, skipping")
-                    continue
-
-                stats["providers_with_epg"] += 1
-
-                # Create or update provider record
-                provider_id = await self._upsert_provider(
-                    instance_id=instance_id,
-                    provider_name=provider_name,
-                    provider_label=provider_data.get("label", provider_name),
-                    has_epg=has_epg,
-                )
-
-                # Discover channels for this provider
+                # Discover channels for this provider (also gives us EPG support info)
                 try:
-                    channels = await self.client.get_channels(provider_name)
-                    stats["channels_found"] += len(channels)
+                    channel_list = await self.client.get_channels(provider_name)
+                    has_epg = channel_list.epg_window.implements_epg
 
-                    for channel_data in channels:
+                    if not has_epg:
+                        logger.debug(f"Provider {provider_name} has no EPG, skipping")
+                        continue
+
+                    stats["providers_with_epg"] += 1
+
+                    # Create or update provider record
+                    provider_id = await self._upsert_provider(
+                        instance_id=instance_id,
+                        provider_name=provider_name,
+                        provider_label=provider_data.get("label", provider_name),
+                        has_epg=has_epg,
+                        epg_window=channel_list.epg_window,
+                    )
+
+                    # Process channels
+                    stats["channels_found"] += len(channel_list.channels)
+
+                    for channel in channel_list.channels:
                         try:
                             channel_id = await self._process_channel(
                                 provider_id=provider_id,
                                 provider_name=provider_name,
-                                channel_data=channel_data,
+                                channel=channel,
                             )
                             if channel_id:
                                 stats["channels_mapped"] += 1
                         except Exception as e:
                             error_msg = (
                                 f"Failed to process channel "
-                                f"{channel_data.get('Name', 'unknown')}: {e}"
+                                f"{channel.name}: {e}"
                             )
                             logger.error(error_msg)
                             stats["errors"].append(error_msg)
@@ -148,6 +149,7 @@ class UltimateBackendDiscoveryService:
             provider_name: str,
             provider_label: str,
             has_epg: bool,
+            epg_window=None,
     ) -> int:
         """
         Insert or update provider record in both ultimate_providers and providers tables.
@@ -157,6 +159,7 @@ class UltimateBackendDiscoveryService:
             provider_name: Provider name (unique identifier)
             provider_label: Human-readable provider label
             has_epg: Whether provider has EPG capability
+            epg_window: EPGWindow object with window settings
 
         Returns:
             Provider ID from ultimate_providers table
@@ -234,9 +237,10 @@ class UltimateBackendDiscoveryService:
                 (provider_label, instance_id, 1 if has_epg else 0, now, existing_provider[0]),
             )
             logger.debug(f"Updated providers table for: {provider_name}")
+            provider_id = existing_provider[0]
         else:
             # Insert new provider record
-            db.execute(
+            cursor = db.execute(
                 """
                 INSERT INTO providers (
                     name,
@@ -251,6 +255,7 @@ class UltimateBackendDiscoveryService:
                 """,
                 (provider_name, provider_label, instance_id, 1 if has_epg else 0, now, now),
             )
+            provider_id = cursor.lastrowid
             logger.info(f"Created providers table entry for: {provider_name}")
 
         # ======================================================================
@@ -259,33 +264,48 @@ class UltimateBackendDiscoveryService:
 
         if has_epg:
             # Check if EPG config exists
-            epg_config_exists = db.fetchone(
-                "SELECT id FROM provider_epg_config WHERE provider_id = (SELECT id FROM providers WHERE name = ?)",
-                (provider_name,),
+            epg_config_row = db.fetchone(
+                "SELECT id FROM provider_epg_config WHERE provider_id = ?",
+                (provider_id,),
             )
 
-            if not epg_config_exists:
-                # Get the provider ID from providers table
-                provider_row = db.fetchone("SELECT id FROM providers WHERE name = ?", (provider_name,))
-                if provider_row:
-                    db.execute(
-                        """
-                        INSERT INTO provider_epg_config (
-                            provider_id,
-                            future_days,
-                            past_days,
-                            chunk_hours,
-                            max_requests_per_second,
-                            max_concurrent_channels,
-                            max_retries,
-                            timeout_seconds,
-                            created_at,
-                            updated_at
-                        ) VALUES (?, 7, 7, 24, 5.0, 3, 3, 30, ?, ?)
-                        """,
-                        (provider_row[0], now, now),
-                    )
-                    logger.debug(f"Created EPG config for provider: {provider_name}")
+            # Get values from epg_window if available
+            future_days = epg_window.future_days if epg_window else 7
+            past_days = epg_window.past_days if epg_window else 7
+
+            if epg_config_row:
+                # Update existing EPG config with NEW dynamic values
+                db.execute(
+                    """
+                    UPDATE provider_epg_config
+                    SET future_days = ?,
+                        past_days = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (future_days, past_days, now, epg_config_row[0]),
+                )
+                logger.debug(f"Updated EPG config for provider: {provider_name} (f={future_days}, p={past_days})")
+            else:
+                # Insert new EPG config
+                db.execute(
+                    """
+                    INSERT INTO provider_epg_config (
+                        provider_id,
+                        future_days,
+                        past_days,
+                        chunk_hours,
+                        max_requests_per_second,
+                        max_concurrent_channels,
+                        max_retries,
+                        timeout_seconds,
+                        created_at,
+                        updated_at
+                    ) VALUES (?, ?, ?, 24, 5.0, 3, 3, 30, ?, ?)
+                    """,
+                    (provider_id, future_days, past_days, now, now),
+                )
+                logger.debug(f"Created EPG config for provider: {provider_name} (f={future_days}, p={past_days})")
 
         return ultimate_provider_id
 
@@ -293,7 +313,7 @@ class UltimateBackendDiscoveryService:
             self,
             provider_id: int,
             provider_name: str,
-            channel_data: Dict,
+            channel,  # Now accepts UltimateBackendChannel dataclass
     ) -> Optional[int]:
         """
         Process a single channel: create logical channel and mapping.
@@ -301,26 +321,17 @@ class UltimateBackendDiscoveryService:
         """
         db = get_db()
 
-        ultimate_channel_id = str(channel_data.get("Id", channel_data.get("id", "")))
-        channel_name = channel_data.get("Name", channel_data.get("name", ""))
-        channel_logo = channel_data.get("LogoUrl", channel_data.get("logo_url"))
+        ultimate_channel_id = channel.id
+        channel_name = channel.name
+        channel_logo = channel.logo_url
+        channel_number = channel.channel_number
+        catchup_hours = channel.catchup_hours
+        live_id = channel.live_id
+        stream_uid = channel.stream_uid
 
         if not ultimate_channel_id or not channel_name:
-            logger.warning(f"Invalid channel data (missing Id or Name): {channel_data}")
+            logger.warning(f"Invalid channel data (missing Id or Name): {channel}")
             return None
-
-        # Safely coerce values
-        raw_number = channel_data.get("ChannelNumber")
-        try:
-            channel_number = int(raw_number) if raw_number is not None else 0
-        except (ValueError, TypeError):
-            channel_number = 0
-
-        raw_catchup = channel_data.get("CatchupHours")
-        try:
-            catchup_hours = int(raw_catchup) if raw_catchup is not None else 168
-        except (ValueError, TypeError):
-            catchup_hours = 168
 
         # Get or create logical channel
         logical_name = f"{provider_name}:{ultimate_channel_id}"
@@ -355,10 +366,10 @@ class UltimateBackendDiscoveryService:
             else:
                 logger.debug(f"Channel {logical_name} unchanged, skipping update")
 
-            channel = existing_channel
+            channel_obj = existing_channel
         else:
             # Create new channel
-            channel = self.epg_service.create_channel(
+            channel_obj = self.epg_service.create_channel(
                 name=logical_name,
                 display_name=channel_name,
                 icon_url=channel_logo,
@@ -401,12 +412,10 @@ class UltimateBackendDiscoveryService:
                 updates.append("catchup_hours = ?")
                 params.append(catchup_hours)
 
-            live_id = channel_data.get("LiveId", channel_data.get("live_id"))
             if row[5] != live_id:
                 updates.append("live_id = ?")
                 params.append(live_id)
 
-            stream_uid = channel_data.get("StreamUid", channel_data.get("stream_uid"))
             if row[6] != stream_uid:
                 updates.append("stream_uid = ?")
                 params.append(stream_uid)
@@ -439,8 +448,8 @@ class UltimateBackendDiscoveryService:
                     channel_number,
                     channel_logo,
                     catchup_hours,
-                    channel_data.get("LiveId", channel_data.get("live_id")),
-                    channel_data.get("StreamUid", channel_data.get("stream_uid")),
+                    live_id,
+                    stream_uid,
                 ),
             )
             ultimate_channel_db_id = cursor.lastrowid
@@ -452,7 +461,7 @@ class UltimateBackendDiscoveryService:
             SELECT id FROM ultimate_channel_mappings 
             WHERE ultimate_channel_id = ? AND channel_id = ?
             """,
-            (ultimate_channel_db_id, channel.id),
+            (ultimate_channel_db_id, channel_obj.id),
         )
 
         if not existing_mapping:
@@ -461,9 +470,9 @@ class UltimateBackendDiscoveryService:
                 INSERT INTO ultimate_channel_mappings (ultimate_channel_id, channel_id)
                 VALUES (?, ?)
                 """,
-                (ultimate_channel_db_id, channel.id),
+                (ultimate_channel_db_id, channel_obj.id),
             )
-            logger.info(f"Created mapping: ultimate_channel_id={ultimate_channel_db_id} -> channel_id={channel.id}")
+            logger.info(f"Created mapping: ultimate_channel_id={ultimate_channel_db_id} -> channel_id={channel_obj.id}")
 
         # Ensure import state exists (only if missing)
         existing_state = db.fetchone(
@@ -483,7 +492,7 @@ class UltimateBackendDiscoveryService:
             )
             logger.info(f"Created import state for channel {ultimate_channel_db_id}")
 
-        return channel.id
+        return channel_obj.id
 
     @staticmethod
     async def _update_discovery_timestamp(instance_id: int):

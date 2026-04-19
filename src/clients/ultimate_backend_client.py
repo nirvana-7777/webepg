@@ -137,34 +137,24 @@ class UltimateBackendClient(EPGClient):
         data = await self._request("GET", "/api/providers")
         return data.get("providers", [])
 
-    async def get_channels(self, provider_name: str) -> List[Dict]:
+    async def get_channels(self, provider_name: str) -> UltimateBackendChannelList:
         """
         GET /api/providers/{provider}/channels
-        Returns list of channels for a provider.
+        Returns list of channels for a provider along with EPG window info.
 
         Real response shape:
             {"provider": "magenta2",
              "country": "de",
              "catchup_window_hours": 4,
+             "epg_window": {"past_days": 7, "future_days": 3, "implements_epg": true},
              "channels": [{
                 "Name": "Moviedome",
-                "Id": "Zf4PyxjqUvbe",   ← string, NOT numeric
-                "Provider": "magenta2",
-                "LogoUrl": "...",
-                "Quality": "HD",
-                "ChannelNumber": 148,
-                "CatchupHours": 4,
-                "Country": "de",
-                "Language": "de",
+                "Id": "Zf4PyxjqUvbe",
                 ...
              }]}
-
-        NOTE: Channel IDs are opaque strings (e.g. "Zf4PyxjqUvbe"), not
-        integers. UltimateBackendChannel.from_api_response() already stores
-        them as str, which is correct.
         """
         data = await self._request("GET", f"/api/providers/{provider_name}/channels")
-        return data.get("channels", [])
+        return UltimateBackendChannelList.from_api_response(data)
 
     async def get_epg(
         self,
@@ -225,18 +215,22 @@ class UltimateBackendClient(EPGClient):
 
     async def has_epg(self, provider_name: str) -> bool:
         """
-        Check if provider has EPG by probing the /channels endpoint.
+        Check if provider has EPG by fetching the /channels endpoint
+        and checking the implements_epg flag.
 
         Returns:
-            True if the endpoint returns 200, False on 404.
+            True if the endpoint returns 200 and implements_epg is True.
         """
         try:
-            await self._request("GET", f"/api/providers/{provider_name}/channels")
-            return True
+            channel_list = await self.get_channels(provider_name)
+            return channel_list.epg_window.implements_epg
         except ClientResponseError as e:
             if e.status == 404:
                 return False
             logger.warning(f"Unexpected error checking EPG for {provider_name}: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"Error checking EPG support for {provider_name}: {e}")
             return False
 
     async def close(self):

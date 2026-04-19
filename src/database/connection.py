@@ -133,6 +133,22 @@ class DatabaseConnection:
             cursor.execute(sql, parameters)
             return cursor.fetchall()
 
+    def fetchall_as_dict(self, sql: str, parameters: tuple = ()) -> list:
+        """
+        Execute query and fetch all results as a list of dictionaries.
+
+        Args:
+            sql: SQL query
+            parameters: Query parameters
+
+        Returns:
+            List of dictionaries
+        """
+        with self.get_cursor() as cursor:
+            cursor.execute(sql, parameters)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
     def close(self):
         """Close thread-local connection if it exists."""
         if hasattr(self._local, "connection") and self._local.connection:
