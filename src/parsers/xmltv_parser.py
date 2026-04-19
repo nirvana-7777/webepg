@@ -253,6 +253,10 @@ class XMLTVParser:
                     country_elem = elem.find("country")
                     country = country_elem.text if country_elem is not None else None
 
+                    # Get language
+                    language_elem = elem.find("language")
+                    language = language_elem.text if language_elem is not None else None
+
                     yield {
                         "channel_id": channel_id,
                         "start_time": start_time,
@@ -271,6 +275,7 @@ class XMLTVParser:
                         "icon_url": icon_url,
                         "production_year": production_year,  # New field
                         "country": country,  # New field
+                        "language": language,  # New field
                     }
 
                     # Clear element to free memory

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SchemaManager:
     """Manages database schema creation and migrations."""
 
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
 
     SCHEMA_SQL = """
     -- Schema version tracking
@@ -85,6 +85,7 @@ class SchemaManager:
         icon_url TEXT,
         production_year TEXT,  -- NEW: Production year (date from XML)
         country TEXT,  -- NEW: Country of origin
+        language TEXT, -- NEW: Language of the program
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
         FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
@@ -252,6 +253,20 @@ class SchemaManager:
             # Continue to next migration if needed
             if to_version > 5:
                 cls._migrate_database(conn, 5, to_version)
+            return
+
+        # Migration: version 5 -> 6
+        if from_version == 5 and to_version >= 6:
+            logger.info("Applying migration 5 -> 6")
+            from ..database.migrations.v6_add_program_language import migrate_v5_to_v6
+            migrate_v5_to_v6(conn)
+
+            # Update version to 6
+            cls._update_schema_version(conn, 6)
+
+            # Continue to next migration if needed
+            if to_version > 6:
+                cls._migrate_database(conn, 6, to_version)
             return
 
         # If we get here, no migration path was found

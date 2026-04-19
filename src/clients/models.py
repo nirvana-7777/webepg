@@ -120,11 +120,11 @@ class UltimateBackendChannelList:
 class UltimateBackendProgram:
     """Program from Ultimate Backend EPG API."""
 
-    epg_id: int
-    schedule_id: str
-    title: str
-    start: datetime
-    end: datetime
+    epg_id: Optional[int] = None
+    schedule_id: str = ""
+    title: str = ""
+    start: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    end: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     plot: Optional[str] = None
     original_title: Optional[str] = None
     episode_title: Optional[str] = None
@@ -134,10 +134,15 @@ class UltimateBackendProgram:
     episode_num: Optional[int] = None
     has_episode_info: bool = False
     director: Optional[str] = None
+    directors: List[str] = field(default_factory=list)
     cast: List[str] = field(default_factory=list)
     producer: Optional[str] = None
+    producers: List[str] = field(default_factory=list)
+    writers: List[str] = field(default_factory=list)
+    presenters: List[str] = field(default_factory=list)
+    language: Optional[str] = None
     year: Optional[int] = None
-    rating: Optional[int] = None
+    rating: Optional[str] = None
     thumbnail: Optional[str] = None
     images: Optional[Dict] = None
     live_id: Optional[int] = None
@@ -147,20 +152,21 @@ class UltimateBackendProgram:
     category_ids: List[int] = field(default_factory=list)
 
     @classmethod
-    def _parse_datetime(cls, value: Optional[str]) -> Optional[datetime]:
+    def _parse_datetime(cls, value: Any) -> Optional[datetime]:
         """
-        Parse an ISO 8601 datetime string, converting timezone-aware values
-        to UTC-naive datetimes for consistent database storage.
-
-        The real API returns timezone-aware strings like:
-            "2026-04-07T11:00:00+00:00"
-        Python's datetime.fromisoformat() handles these in 3.7+, but the
-        resulting datetime is tz-aware. We normalise to UTC-naive here.
+        Parse datetime value which could be an ISO 8601 string or an epoch integer/float.
+        Normalises to UTC-naive datetime for database storage.
         """
-        if not value:
+        if value is None or value == "":
             return None
+            
+        if isinstance(value, (int, float)):
+            # Handle epoch timestamp
+            return datetime.fromtimestamp(value, tz=timezone.utc).replace(tzinfo=None)
+            
         try:
-            dt = datetime.fromisoformat(value)
+            # Handle ISO string
+            dt = datetime.fromisoformat(str(value))
             if dt.tzinfo is not None:
                 # Convert to UTC then strip tzinfo
                 dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
@@ -171,39 +177,56 @@ class UltimateBackendProgram:
     @classmethod
     def from_api_response(cls, data: dict) -> "UltimateBackendProgram":
         """Parse API response into model."""
-        start = cls._parse_datetime(data.get("start", ""))
-        end = cls._parse_datetime(data.get("end", ""))
+        start = cls._parse_datetime(data.get("start"))
+        end = cls._parse_datetime(data.get("end"))
 
         if start is None or end is None:
             raise ValueError(
-                f"Program {data.get('epg_id')} missing start/end time"
+                f"Program {data.get('epg_id', data.get('program_id'))} missing start/end time"
             )
 
-        # rating: API sends 0 for "no rating"; normalise 0 → None so we don't
-        # store a meaningless "0" rating in the database.
-        raw_rating = data.get("rating")
-        rating = int(raw_rating) if raw_rating not in (None, 0) else None
+        # Map person lists, handling plural/singular variations
+        directors = data.get("directors") or []
+        if not directors and data.get("director"):
+            directors = [data.get("director")]
+            
+        producers = data.get("producers") or []
+        if not producers and data.get("producer"):
+            producers = [data.get("producer")]
+            
+        presenters = data.get("presenter") or data.get("presenters") or []
+        if isinstance(presenters, str):
+            presenters = [presenters]
+            
+        writers = data.get("writer") or data.get("writers") or []
+        if isinstance(writers, str):
+            writers = [writers]
 
         return cls(
             epg_id=data.get("epg_id"),
-            schedule_id=data.get("schedule_id", ""),
+            schedule_id=str(data.get("schedule_id", data.get("program_id", ""))),
             title=data.get("title", ""),
             start=start,
             end=end,
-            plot=data.get("plot") or None,
+            plot=data.get("plot", data.get("description")) or None,
             original_title=data.get("original_title") or None,
-            episode_title=data.get("episode_title") or None,
-            genre=data.get("genre") or None,
+            episode_title=data.get("episode_title", data.get("episode_name")) or None,
+            genre=data.get("genre", data.get("genre_description")) or None,
             categories=data.get("categories") or [],
-            season_num=data.get("season_num"),
-            episode_num=data.get("episode_num"),
+            season_num=data.get("season_num", data.get("season_number")),
+            episode_num=data.get("episode_num", data.get("episode_number")),
             has_episode_info=bool(data.get("has_episode_info", False)),
-            director=data.get("director") or None,
+            director=data.get("director") or (directors[0] if directors else None),
+            directors=directors,
             cast=data.get("cast") or [],
-            producer=data.get("producer") or None,
+            producer=data.get("producer") or (producers[0] if producers else None),
+            producers=producers,
+            writers=writers,
+            presenters=presenters,
+            language=data.get("language"),
             year=data.get("year"),
-            rating=rating,
-            thumbnail=data.get("thumbnail") or None,
+            rating=str(data.get("rating", data.get("parental_rating_code", ""))) or None,
+            thumbnail=data.get("thumbnail", data.get("image")) or None,
             images=data.get("images") or None,
             live_id=data.get("live_id"),
             live_name=data.get("live_name") or None,
@@ -230,10 +253,15 @@ class UltimateBackendProgram:
             "episode_num": self.episode_num,
             "has_episode_info": 1 if self.has_episode_info else 0,
             "director": self.director,
+            "directors": json.dumps(self.directors) if self.directors else None,
             "actors": json.dumps(self.cast) if self.cast else None,
             "producer": self.producer,
+            "producers": json.dumps(self.producers) if self.producers else None,
+            "writers": json.dumps(self.writers) if self.writers else None,
+            "presenters": json.dumps(self.presenters) if self.presenters else None,
             "production_year": str(self.year) if self.year else None,
-            "rating": str(self.rating) if self.rating is not None else None,
+            "language": self.language,
+            "rating": self.rating,
             "thumbnail_url": self.thumbnail,
             "images": json.dumps(self.images) if self.images else None,
-        }
+            }

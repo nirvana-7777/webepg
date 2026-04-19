@@ -132,6 +132,7 @@ class Program:
     icon_url: Optional[str] = None
     production_year: Optional[str] = None
     country: Optional[str] = None
+    language: Optional[str] = None
     # Ultimate Backend fields (NULL for other sources)
     ultimate_epg_id: Optional[int] = None
     schedule_id: Optional[str] = None
@@ -183,6 +184,7 @@ class Program:
             icon_url=row["icon_url"],
             production_year=_safe("production_year"),
             country=_safe("country"),
+            language=_safe("language"),
             # Ultimate Backend fields — use _safe() so rows from other sources
             # that predate v3 don't raise KeyError
             ultimate_epg_id=_safe("ultimate_epg_id"),
@@ -242,6 +244,7 @@ class Program:
             "icon_url": self.icon_url,
             "production_year": self.production_year,
             "country": self.country,
+            "language": self.language,
             "created_at": to_utc_isoformat(self.created_at),
         }
 

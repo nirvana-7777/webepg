@@ -116,8 +116,8 @@ class ImportService:
                         channel_id, provider_id, start_time, end_time,
                         title, subtitle, description, category, episode_num,
                         rating, actors, directors, presenters, writers, producers,
-                        icon_url, production_year, country
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        icon_url, production_year, country, language
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(channel_id, start_time, end_time)
                     DO UPDATE SET
                         subtitle = COALESCE(excluded.subtitle, programs.subtitle),
@@ -133,6 +133,7 @@ class ImportService:
                         icon_url = COALESCE(excluded.icon_url, programs.icon_url),
                         production_year = COALESCE(excluded.production_year, programs.production_year),
                         country = COALESCE(excluded.country, programs.country),
+                        language = COALESCE(excluded.language, programs.language),
                         created_at = CURRENT_TIMESTAMP
                      """
 
@@ -174,6 +175,7 @@ class ImportService:
                         program_data.get("icon_url"),
                         program_data.get("production_year"),  # New field
                         program_data.get("country"),  # New field
+                        program_data.get("language"),  # New field
                     )
                 )
 
