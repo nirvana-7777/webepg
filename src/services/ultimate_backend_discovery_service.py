@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Optional
 
+from ..clients.models import EPGWindow
 from ..clients.ultimate_backend_client import UltimateBackendClient
 from ..database.connection import get_db
 from .epg_service import EPGService
