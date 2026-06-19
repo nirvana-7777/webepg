@@ -78,6 +78,7 @@ class UltimateBackendChannel:
 @dataclass
 class EPGWindow:
     """EPG window information from Ultimate Backend API."""
+
     past_days: int = 7
     future_days: int = 7
     implements_epg: bool = True
@@ -96,6 +97,7 @@ class EPGWindow:
 @dataclass
 class UltimateBackendChannelList:
     """Wrapped channel list with provider-level EPG info."""
+
     provider: str
     country: Optional[str]
     catchup_window_hours: int
@@ -112,7 +114,9 @@ class UltimateBackendChannelList:
             country=data.get("country"),
             catchup_window_hours=data.get("catchup_window_hours", 0),
             epg_window=EPGWindow.from_api_response(epg_window_data),
-            channels=[UltimateBackendChannel.from_api_response(c) for c in channels_data],
+            channels=[
+                UltimateBackendChannel.from_api_response(c) for c in channels_data
+            ],
         )
 
 
@@ -159,11 +163,11 @@ class UltimateBackendProgram:
         """
         if value is None or value == "":
             return None
-            
+
         if isinstance(value, (int, float)):
             # Handle epoch timestamp
             return datetime.fromtimestamp(value, tz=timezone.utc).replace(tzinfo=None)
-            
+
         try:
             # Handle ISO string
             dt = datetime.fromisoformat(str(value))
@@ -189,15 +193,15 @@ class UltimateBackendProgram:
         directors = data.get("directors") or []
         if not directors and data.get("director"):
             directors = [data.get("director")]
-            
+
         producers = data.get("producers") or []
         if not producers and data.get("producer"):
             producers = [data.get("producer")]
-            
+
         presenters = data.get("presenter") or data.get("presenters") or []
         if isinstance(presenters, str):
             presenters = [presenters]
-            
+
         writers = data.get("writer") or data.get("writers") or []
         if isinstance(writers, str):
             writers = [writers]
@@ -225,7 +229,8 @@ class UltimateBackendProgram:
             presenters=presenters,
             language=data.get("language"),
             year=data.get("year"),
-            rating=str(data.get("rating", data.get("parental_rating_code", ""))) or None,
+            rating=str(data.get("rating", data.get("parental_rating_code", "")))
+            or None,
             thumbnail=data.get("thumbnail", data.get("image")) or None,
             images=data.get("images") or None,
             live_id=data.get("live_id"),
@@ -264,4 +269,4 @@ class UltimateBackendProgram:
             "rating": self.rating,
             "thumbnail_url": self.thumbnail,
             "images": json.dumps(self.images) if self.images else None,
-            }
+        }

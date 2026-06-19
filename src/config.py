@@ -39,6 +39,7 @@ class Config:
                 "max_concurrent_channels": 3,
                 "timeout_seconds": 30,
                 "max_retries": 3,
+                "api_max_future_days": 3,
             },
             "discovery": {
                 "enabled": True,
@@ -49,6 +50,15 @@ class Config:
                 "max_attempts": 3,
                 "base_delay_seconds": 1,
                 "max_delay_seconds": 30,
+            },
+            "grid_import": {
+                "chunk_hours": 3,
+                "days_ahead": 7,
+            },
+            "detail_enrichment": {
+                "enabled": True,
+                "max_days": 7,
+                "max_attempts": 3,
             },
         },
     }

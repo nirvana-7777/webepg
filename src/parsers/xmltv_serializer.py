@@ -42,6 +42,7 @@ class XMLTVSerializer:
             return None
         try:
             import json
+
             if isinstance(value, str):
                 return json.loads(value)
             return value
@@ -192,7 +193,9 @@ class XMLTVSerializer:
 
         # Length (from duration)
         if program.get("start_time") and program.get("end_time"):
-            duration = (program["end_time"] - program["start_time"]).total_seconds() / 60
+            duration = (
+                program["end_time"] - program["start_time"]
+            ).total_seconds() / 60
             if duration > 0:
                 length = SubElement(prog_elem, "length")
                 length.text = str(int(duration))
@@ -217,9 +220,7 @@ class XMLTVSerializer:
         season_num = program.get("season_num")
         raw_episode_num = program.get("episode_num")
 
-        has_structured_episode = (
-            season_num is not None and raw_episode_num is not None
-        )
+        has_structured_episode = season_num is not None and raw_episode_num is not None
 
         if has_structured_episode:
             # Check if both values are integers (not just strings like "E05")
@@ -276,13 +277,13 @@ class XMLTVSerializer:
         return prog_elem
 
     def serialize_tv(
-            self,
-            channels: List[Dict],
-            programs: List[Dict],
-            generator_info_name: str = "EPG Service",
-            generator_info_url: str = "",
-            source_info_name: str = "",
-            source_info_url: str = "",
+        self,
+        channels: List[Dict],
+        programs: List[Dict],
+        generator_info_name: str = "EPG Service",
+        generator_info_url: str = "",
+        source_info_name: str = "",
+        source_info_url: str = "",
     ) -> str:
         """
         Serialize complete TV listing to XMLTV format.
@@ -322,7 +323,9 @@ class XMLTVSerializer:
 
         # Add programs (group by channel)
         for program in programs:
-            channel_id = program.get("channel_identifier") or str(program.get("channel_id"))
+            channel_id = program.get("channel_identifier") or str(
+                program.get("channel_id")
+            )
             if channel_id:
                 tv_elem.append(self.serialize_program(program, channel_id))
 

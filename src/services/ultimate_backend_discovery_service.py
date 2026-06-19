@@ -103,8 +103,7 @@ class UltimateBackendDiscoveryService:
                                 stats["channels_mapped"] += 1
                         except Exception as e:
                             error_msg = (
-                                f"Failed to process channel "
-                                f"{channel.name}: {e}"
+                                f"Failed to process channel " f"{channel.name}: {e}"
                             )
                             logger.error(error_msg)
                             stats["errors"].append(error_msg)
@@ -146,11 +145,11 @@ class UltimateBackendDiscoveryService:
 
     @staticmethod
     async def _upsert_provider(
-            instance_id: int,
-            provider_name: str,
-            provider_label: str,
-            has_epg: bool,
-            epg_window=None,
+        instance_id: int,
+        provider_name: str,
+        provider_label: str,
+        has_epg: bool,
+        epg_window=None,
     ) -> int:
         """
         Insert or update provider record in both ultimate_providers and providers tables.
@@ -192,7 +191,9 @@ class UltimateBackendDiscoveryService:
                 (provider_label, 1 if has_epg else 0, now, now, row[0]),
             )
             ultimate_provider_id = row[0]
-            logger.debug(f"Updated ultimate_provider: {provider_name} (ID: {ultimate_provider_id})")
+            logger.debug(
+                f"Updated ultimate_provider: {provider_name} (ID: {ultimate_provider_id})"
+            )
         else:
             # Insert new ultimate_providers record
             cursor = db.execute(
@@ -207,10 +208,20 @@ class UltimateBackendDiscoveryService:
                     updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (instance_id, provider_name, provider_label, 1 if has_epg else 0, now, now, now),
+                (
+                    instance_id,
+                    provider_name,
+                    provider_label,
+                    1 if has_epg else 0,
+                    now,
+                    now,
+                    now,
+                ),
             )
             ultimate_provider_id = cursor.lastrowid
-            logger.info(f"Created ultimate_provider: {provider_name} (ID: {ultimate_provider_id})")
+            logger.info(
+                f"Created ultimate_provider: {provider_name} (ID: {ultimate_provider_id})"
+            )
 
         # ======================================================================
         # Step 2: Sync to unified providers table
@@ -235,7 +246,13 @@ class UltimateBackendDiscoveryService:
                     updated_at = ?
                 WHERE id = ?
                 """,
-                (provider_label, instance_id, 1 if has_epg else 0, now, existing_provider[0]),
+                (
+                    provider_label,
+                    instance_id,
+                    1 if has_epg else 0,
+                    now,
+                    existing_provider[0],
+                ),
             )
             logger.debug(f"Updated providers table for: {provider_name}")
             provider_id = existing_provider[0]
@@ -254,7 +271,14 @@ class UltimateBackendDiscoveryService:
                     updated_at
                 ) VALUES (?, ?, 'ultimate_backend', ?, ?, 1, ?, ?)
                 """,
-                (provider_name, provider_label, instance_id, 1 if has_epg else 0, now, now),
+                (
+                    provider_name,
+                    provider_label,
+                    instance_id,
+                    1 if has_epg else 0,
+                    now,
+                    now,
+                ),
             )
             provider_id = cursor.lastrowid
             logger.info(f"Created providers table entry for: {provider_name}")
@@ -286,7 +310,9 @@ class UltimateBackendDiscoveryService:
                     """,
                     (future_days, past_days, now, epg_config_row[0]),
                 )
-                logger.debug(f"Updated EPG config for provider: {provider_name} (f={future_days}, p={past_days})")
+                logger.debug(
+                    f"Updated EPG config for provider: {provider_name} (f={future_days}, p={past_days})"
+                )
             else:
                 # Insert new EPG config
                 db.execute(
@@ -306,15 +332,17 @@ class UltimateBackendDiscoveryService:
                     """,
                     (provider_id, future_days, past_days, now, now),
                 )
-                logger.debug(f"Created EPG config for provider: {provider_name} (f={future_days}, p={past_days})")
+                logger.debug(
+                    f"Created EPG config for provider: {provider_name} (f={future_days}, p={past_days})"
+                )
 
         return ultimate_provider_id
 
     async def _process_channel(
-            self,
-            provider_id: int,
-            provider_name: str,
-            channel,  # Now accepts UltimateBackendChannel dataclass
+        self,
+        provider_id: int,
+        provider_name: str,
+        channel,  # Now accepts UltimateBackendChannel dataclass
     ) -> Optional[int]:
         """
         Process a single channel: create logical channel and mapping.
@@ -346,12 +374,14 @@ class UltimateBackendDiscoveryService:
 
             if existing_channel.display_name != channel_name:
                 logger.debug(
-                    f"Channel {logical_name} display_name changed: '{existing_channel.display_name}' -> '{channel_name}'")
+                    f"Channel {logical_name} display_name changed: '{existing_channel.display_name}' -> '{channel_name}'"
+                )
                 needs_update = True
 
             if existing_channel.icon_url != channel_logo:
                 logger.debug(
-                    f"Channel {logical_name} icon_url changed: '{existing_channel.icon_url}' -> '{channel_logo}'")
+                    f"Channel {logical_name} icon_url changed: '{existing_channel.icon_url}' -> '{channel_logo}'"
+                )
                 needs_update = True
 
             if needs_update:
@@ -361,7 +391,7 @@ class UltimateBackendDiscoveryService:
                     SET display_name = ?, icon_url = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                     """,
-                    (channel_name, channel_logo, existing_channel.id)
+                    (channel_name, channel_logo, existing_channel.id),
                 )
                 logger.info(f"Updated channel {logical_name}")
             else:
@@ -397,12 +427,16 @@ class UltimateBackendDiscoveryService:
             if row[1] != channel_name:
                 updates.append("channel_name = ?")
                 params.append(channel_name)
-                logger.debug(f"ultimate_channel {ultimate_channel_id} name changed: '{row[1]}' -> '{channel_name}'")
+                logger.debug(
+                    f"ultimate_channel {ultimate_channel_id} name changed: '{row[1]}' -> '{channel_name}'"
+                )
 
             if row[2] != channel_number:
                 updates.append("channel_number = ?")
                 params.append(channel_number)
-                logger.debug(f"ultimate_channel {ultimate_channel_id} number changed: {row[2]} -> {channel_number}")
+                logger.debug(
+                    f"ultimate_channel {ultimate_channel_id} number changed: {row[2]} -> {channel_number}"
+                )
 
             if row[3] != channel_logo:
                 updates.append("logo_url = ?")
@@ -428,11 +462,15 @@ class UltimateBackendDiscoveryService:
 
                 db.execute(
                     f"UPDATE ultimate_channels SET {', '.join(updates)} WHERE id = ?",
-                    tuple(params)
+                    tuple(params),
                 )
-                logger.info(f"Updated {len(updates) - 1} fields for ultimate_channel {ultimate_channel_id}")
+                logger.info(
+                    f"Updated {len(updates) - 1} fields for ultimate_channel {ultimate_channel_id}"
+                )
             else:
-                logger.debug(f"ultimate_channel {ultimate_channel_id} unchanged, skipping update")
+                logger.debug(
+                    f"ultimate_channel {ultimate_channel_id} unchanged, skipping update"
+                )
         else:
             # Create new ultimate_channel
             cursor = db.execute(
@@ -473,7 +511,9 @@ class UltimateBackendDiscoveryService:
                 """,
                 (ultimate_channel_db_id, channel_obj.id),
             )
-            logger.info(f"Created mapping: ultimate_channel_id={ultimate_channel_db_id} -> channel_id={channel_obj.id}")
+            logger.info(
+                f"Created mapping: ultimate_channel_id={ultimate_channel_db_id} -> channel_id={channel_obj.id}"
+            )
 
         # Ensure import state exists (only if missing)
         existing_state = db.fetchone(

@@ -203,12 +203,22 @@ class UltimateBackendImportService:
         )
 
         # Use provider-specific settings if provided, else fall back to service defaults
-        effective_past_days = provider_past_days if provider_past_days is not None else self.past_days
-        effective_future_days = provider_future_days if provider_future_days is not None else self.future_days
-        effective_chunk_hours = provider_chunk_hours if provider_chunk_hours is not None else self.chunk_hours
+        effective_past_days = (
+            provider_past_days if provider_past_days is not None else self.past_days
+        )
+        effective_future_days = (
+            provider_future_days
+            if provider_future_days is not None
+            else self.future_days
+        )
+        effective_chunk_hours = (
+            provider_chunk_hours
+            if provider_chunk_hours is not None
+            else self.chunk_hours
+        )
 
         # Clamp future window to the API hard cap (currently 3 days).
-        # NOTE: We keep self.api_max_future_days as a safety cap unless 
+        # NOTE: We keep self.api_max_future_days as a safety cap unless
         # the provider explicitly knows better.
         clamped_future_days = min(effective_future_days, self.api_max_future_days)
 
@@ -237,7 +247,9 @@ class UltimateBackendImportService:
         if force_full or not state or not state[0]:
             start_time = now - timedelta(days=effective_past_days)
             last_imported: Optional[datetime] = None
-            logger.info(f"  Window start: {start_time.isoformat()} (full, days={effective_past_days})")
+            logger.info(
+                f"  Window start: {start_time.isoformat()} (full, days={effective_past_days})"
+            )
         else:
             last_imported = self._parse_datetime_safe(state[0])
             start_time = last_imported
@@ -259,7 +271,9 @@ class UltimateBackendImportService:
 
         try:
             while current < end_target:
-                chunk_end = min(current + timedelta(hours=effective_chunk_hours), end_target)
+                chunk_end = min(
+                    current + timedelta(hours=effective_chunk_hours), end_target
+                )
 
                 # Skip chunks already covered by a previous run.
                 if last_imported is not None and chunk_end <= last_imported:
@@ -422,7 +436,9 @@ class UltimateBackendImportService:
 
             if not programs_data:
                 logger.debug(f"No programs in chunk {start_time} → {end_time}")
-                self._update_batch(batch_id, 0, 0, 0, 0, fetch_duration * 1000, "success")
+                self._update_batch(
+                    batch_id, 0, 0, 0, 0, fetch_duration * 1000, "success"
+                )
                 return {"inserted": 0, "updated": 0, "skipped": 0}
 
             inserted = updated = skipped = 0
@@ -430,7 +446,9 @@ class UltimateBackendImportService:
             for prog_data in programs_data:
                 try:
                     program = UltimateBackendProgram.from_api_response(prog_data)
-                    result = self._upsert_program(program, logical_channel_id, provider_name)
+                    result = self._upsert_program(
+                        program, logical_channel_id, provider_name
+                    )
                     if result == "inserted":
                         inserted += 1
                     elif result == "updated":
@@ -468,9 +486,9 @@ class UltimateBackendImportService:
 
     @staticmethod
     def _upsert_program(
-            program: UltimateBackendProgram,
-            logical_channel_id: int,
-            provider_name: str,
+        program: UltimateBackendProgram,
+        logical_channel_id: int,
+        provider_name: str,
     ) -> str:
         """
         Insert or update a program using INSERT OR REPLACE or explicit conflict handling.
@@ -495,7 +513,7 @@ class UltimateBackendImportService:
                 INSERT INTO providers (name, display_name, source_type, has_epg)
                 VALUES (?, ?, 'ultimate_backend', 1)
                 """,
-                (provider_name, provider_name.replace('_', ' ').title()),
+                (provider_name, provider_name.replace("_", " ").title()),
             )
             provider_row = db.fetchone("SELECT last_insert_rowid()")
 
@@ -643,7 +661,9 @@ class UltimateBackendImportService:
             else:
                 # Insert was ignored due to conflict - this means another process
                 # inserted the same program. Try to update it instead.
-                logger.debug(f"Program at {new_start} was inserted by another process, updating instead")
+                logger.debug(
+                    f"Program at {new_start} was inserted by another process, updating instead"
+                )
 
                 # Get the existing record
                 existing = db.fetchone(
@@ -678,12 +698,24 @@ class UltimateBackendImportService:
                             program.episode_num,
                             1 if program.has_episode_info else 0,
                             program.director,
-                            json.dumps(program.directors) if program.directors else None,
+                            (
+                                json.dumps(program.directors)
+                                if program.directors
+                                else None
+                            ),
                             json.dumps(program.cast) if program.cast else None,
                             program.producer,
-                            json.dumps(program.producers) if program.producers else None,
+                            (
+                                json.dumps(program.producers)
+                                if program.producers
+                                else None
+                            ),
                             json.dumps(program.writers) if program.writers else None,
-                            json.dumps(program.presenters) if program.presenters else None,
+                            (
+                                json.dumps(program.presenters)
+                                if program.presenters
+                                else None
+                            ),
                             str(program.year) if program.year else None,
                             program.language,
                             program.rating,

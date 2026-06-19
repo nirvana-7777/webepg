@@ -12,6 +12,7 @@ from xml.dom import minidom
 from ..scheduler.jobs import JobScheduler
 from ..services.epg_service import EPGService
 from ..services.provider_service import ProviderService
+from ..database.connection import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -220,9 +221,7 @@ def trigger_import():
         return jsonify(
             {
                 "message": "Import job triggered",
-                "next_scheduled_import": (
-                    next_run.isoformat() if next_run else None
-                ),
+                "next_scheduled_import": (next_run.isoformat() if next_run else None),
             }
         )
 
@@ -236,7 +235,6 @@ def import_status():
     """Get import status and next scheduled run time."""
     try:
         assert scheduler is not None, "Scheduler not initialized"
-        from ..database.connection import get_db
         from ..database.models import ImportLog
 
         db = get_db()
@@ -482,10 +480,12 @@ def trigger_ultimate_full_import():
 
     try:
         scheduler.trigger_ultimate_full_now()
-        return jsonify({
-            "message": "Full Ultimate Backend import triggered",
-            "type": "full_import",
-        })
+        return jsonify(
+            {
+                "message": "Full Ultimate Backend import triggered",
+                "type": "full_import",
+            }
+        )
     except Exception as e:
         logger.error(f"Error triggering full import: {e}")
         return jsonify({"error": str(e)}), 500
@@ -504,12 +504,75 @@ def trigger_ultimate_incremental_import():
 
     try:
         scheduler.trigger_ultimate_incremental_now()
-        return jsonify({
-            "message": "Incremental Ultimate Backend import triggered",
-            "type": "incremental_import",
-        })
+        return jsonify(
+            {
+                "message": "Incremental Ultimate Backend import triggered",
+                "type": "incremental_import",
+            }
+        )
     except Exception as e:
         logger.error(f"Error triggering incremental import: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/ultimate/grid/import", methods=["POST"])
+def trigger_grid_import():
+    """Manually trigger Ultimate Backend grid import."""
+    if not scheduler or not scheduler.grid_import_service:
+        return jsonify({"error": "Grid import not enabled"}), 400
+    try:
+        scheduler.trigger_grid_import_now()
+        next_run = scheduler.get_next_run_time("daily_grid_import")
+        return jsonify(
+            {
+                "message": "Grid import triggered",
+                "next_scheduled": next_run.isoformat() if next_run else None,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error triggering grid import: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/ultimate/details/enrich", methods=["POST"])
+def trigger_detail_enrichment():
+    """Manually trigger Ultimate Backend detail enrichment."""
+    if not scheduler or not scheduler.detail_enrichment_service:
+        return jsonify({"error": "Detail enrichment not enabled"}), 400
+    try:
+        scheduler.trigger_detail_enrichment_now()
+        next_run = scheduler.get_next_run_time("daily_detail_enrichment")
+        return jsonify(
+            {
+                "message": "Detail enrichment triggered",
+                "next_scheduled": next_run.isoformat() if next_run else None,
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error triggering detail enrichment: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/ultimate/grid/status", methods=["GET"])
+def get_grid_import_status():
+    """Get grid import / enrichment statistics."""
+    try:
+        db = get_db()
+        rows = db.fetchall("""
+            SELECT import_source, COUNT(*) AS total,
+                   SUM(CASE WHEN has_details = 1 THEN 1 ELSE 0 END) AS with_details
+            FROM programs GROUP BY import_source
+        """)
+        stats = {
+            r[0]: {"total": r[1], "with_details": r[2], "without_details": r[1] - r[2]}
+            for r in rows
+        }
+        last = db.fetchone(
+            "SELECT MAX(grid_fetched_at) FROM programs WHERE import_source = 'ultimate_grid'"
+        )
+        return jsonify({"stats": stats, "last_grid_import": last[0] if last else None})
+    except Exception as e:
+        logger.error(f"Error getting grid status: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -641,9 +704,11 @@ def preview_duplicates():
             )
 
         # Get estimated removal count
-        estimated_removals = sum(
-            1 for dup in duplicate_list if dup["match_quality"]["would_be_removed"]
-        ) if duplicate_list else 0
+        estimated_removals = (
+            sum(1 for dup in duplicate_list if dup["match_quality"]["would_be_removed"])
+            if duplicate_list
+            else 0
+        )
 
         return jsonify(
             {
@@ -869,9 +934,7 @@ def trigger_ultimate_discovery():
         return jsonify(
             {
                 "message": "Ultimate Backend discovery triggered",
-                "next_scheduled": (
-                    next_run.isoformat() if next_run else None
-                ),
+                "next_scheduled": (next_run.isoformat() if next_run else None),
             }
         )
     except Exception as e:
@@ -891,9 +954,7 @@ def trigger_ultimate_import():
         return jsonify(
             {
                 "message": "Ultimate Backend incremental import triggered",
-                "next_scheduled": (
-                    next_run.isoformat() if next_run else None
-                ),
+                "next_scheduled": (next_run.isoformat() if next_run else None),
             }
         )
     except Exception as e:
@@ -959,8 +1020,11 @@ def export_provider_epg_xml(identifier):
         serializer = XMLTVSerializer()
 
         from ..config import load_config
+
         config = load_config()
-        config.get_section("server")  # Load server config (used by serializer internally if needed)
+        config.get_section(
+            "server"
+        )  # Load server config (used by serializer internally if needed)
 
         xml_output = serializer.serialize_tv(
             channels=channels,

@@ -213,6 +213,7 @@ class Program:
             return None
         try:
             import json
+
             parsed = json.loads(value)
             if isinstance(parsed, list):
                 return parsed

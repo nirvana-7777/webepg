@@ -35,7 +35,9 @@ def migrate_v4_to_v5(db_or_path):
 
             # Then update existing rows with current timestamp
             now = datetime.now(timezone.utc).isoformat()
-            cursor.execute("UPDATE channels SET updated_at = ? WHERE updated_at IS NULL", (now,))
+            cursor.execute(
+                "UPDATE channels SET updated_at = ? WHERE updated_at IS NULL", (now,)
+            )
             logger.info(f"Set updated_at for {cursor.rowcount} existing rows")
 
             # Now add the default for future inserts
@@ -56,8 +58,13 @@ def migrate_v4_to_v5(db_or_path):
 
             # Update existing rows
             now = datetime.now(timezone.utc).isoformat()
-            cursor.execute("UPDATE ultimate_channels SET updated_at = ? WHERE updated_at IS NULL", (now,))
-            logger.info(f"Set updated_at for {cursor.rowcount} existing rows in ultimate_channels")
+            cursor.execute(
+                "UPDATE ultimate_channels SET updated_at = ? WHERE updated_at IS NULL",
+                (now,),
+            )
+            logger.info(
+                f"Set updated_at for {cursor.rowcount} existing rows in ultimate_channels"
+            )
         else:
             logger.info("updated_at column already exists in ultimate_channels table")
 

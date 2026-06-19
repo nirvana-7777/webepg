@@ -11,9 +11,7 @@ import aiohttp
 from aiohttp import ClientError, ClientResponseError, ClientTimeout
 
 from .base import EPGClient
-from .models import (EPGWindow, UltimateBackendChannel,
-                     UltimateBackendChannelList, UltimateBackendProgram,
-                     UltimateBackendProvider)
+from .models import UltimateBackendChannelList
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +101,7 @@ class UltimateBackendClient(EPGClient):
 
         except ClientResponseError as e:
             if e.status >= 500 and retry_count < self.max_retries:
-                wait_time = 2 ** retry_count
+                wait_time = 2**retry_count
                 logger.warning(f"Server error {e.status}, retrying in {wait_time}s")
                 await asyncio.sleep(wait_time)
                 return await self._request(method, path, params, retry_count + 1)
@@ -111,7 +109,7 @@ class UltimateBackendClient(EPGClient):
 
         except ClientError as e:
             if retry_count < self.max_retries:
-                wait_time = 2 ** retry_count
+                wait_time = 2**retry_count
                 logger.warning(f"Request failed: {e}, retrying in {wait_time}s")
                 await asyncio.sleep(wait_time)
                 return await self._request(method, path, params, retry_count + 1)
@@ -213,6 +211,104 @@ class UltimateBackendClient(EPGClient):
         )
 
         return data.get("programs", [])
+
+    async def get_epg_grid(
+        self,
+        provider_name: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> Dict[str, List[Dict]]:
+        """
+        GET /api/providers/{provider}/epg/grid
+        Returns a lightweight schedule grid across ALL channels for a
+        provider in one call — no description/cast/crew.
+
+        Real response shape:
+            {"provider": "magentaeu_at",
+             "start_time": "1781733600",
+             "end_time": "1781744400",
+             "channels_count": 315,
+             "grid": {
+                "777438248135": [{
+                    "broadcast_id": 1194701270,   ← synthetic Kodi-facing int
+                    "title": "FIFA WM 2026",
+                    "start": 1781736600,           ← epoch seconds
+                    "end": 1781745600,              ← epoch seconds
+                    "program_id": "gn.tv-32934550-EP063839090023",  ← stable id
+                    "episode_name": "Gruppe L: Ghana - Panama",
+                    "year": 2026,
+                    "genre_description": "Fußball"
+                }]
+             }}
+
+        Args:
+            provider_name: Provider name (e.g., "magentaeu_at")
+            start_time: UTC datetime
+            end_time: UTC datetime
+
+        Returns:
+            Dict mapping channel_id (str) -> list of raw grid item dicts.
+            Empty dict if the provider has no grid data for this window.
+        """
+        params = {
+            "start_time": int(start_time.timestamp()),
+            "end_time": int(end_time.timestamp()),
+        }
+
+        data = await self._request(
+            "GET",
+            f"/api/providers/{provider_name}/epg/grid",
+            params=params,
+        )
+
+        return data.get("grid", {})
+
+    async def get_program_details(
+        self,
+        provider_name: str,
+        program_id: str,
+    ) -> Optional[Dict]:
+        """
+        GET /api/providers/{provider}/programs/{program_id}
+        Returns full metadata (description, cast, crew) for one program.
+
+        program_id is the stable string id from the grid response
+        (e.g. "gn.tv-12821071-EP035945070002") — NOT the synthetic
+        broadcast_id int.
+
+        Real response shape:
+            {"provider": "magentaeu_at",
+             "program_id": "gn.tv-12821071-EP035945070002",
+             "details": {
+                "program_id": "gn.tv-12821071-EP035945070002",
+                "description": "...",
+                "year": 2016,
+                "icon": "https://...",
+                "cast": ["Jack Spencer"],
+                "directors": ["Werner Hefer"],
+                "writers": ["Paul Maughan-Brown"],
+                "producers": ["Craig Colby", ...]
+             }}
+
+        Note: there is no season_num/episode_num/parental_rating in this
+        response — those only ever come from the grid endpoint.
+
+        Returns:
+            The raw "details" dict, or None if the program has no details
+            (404) or the response is malformed.
+        """
+        try:
+            data = await self._request(
+                "GET",
+                f"/api/providers/{provider_name}/programs/{program_id}",
+            )
+        except ClientResponseError as e:
+            if e.status == 404:
+                logger.debug(f"No details for program {program_id}")
+                return None
+            raise
+
+        return data.get("details")
 
     async def has_epg(self, provider_name: str) -> bool:
         """

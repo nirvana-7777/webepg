@@ -13,10 +13,16 @@ from apscheduler.triggers.cron import CronTrigger
 
 from ..services.cleanup_service import CleanupService
 from ..services.import_service import ImportService
-from ..services.ultimate_backend_discovery_service import \
-    UltimateBackendDiscoveryService
-from ..services.ultimate_backend_import_service import \
-    UltimateBackendImportService
+from ..services.ultimate_backend_discovery_service import (
+    UltimateBackendDiscoveryService,
+)
+from ..services.ultimate_backend_import_service import UltimateBackendImportService
+from ..services.ultimate_backend_grid_import_service import (
+    UltimateBackendGridImportService,
+)
+from ..services.ultimate_backend_detail_enrichment_service import (
+    UltimateBackendDetailEnrichmentService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,10 @@ class JobScheduler:
         self.ultimate_client = None
         self.ultimate_discovery_service = None
         self._ultimate_import_service: Optional[UltimateBackendImportService] = None
+        self.grid_import_service: Optional[UltimateBackendGridImportService] = None
+        self.detail_enrichment_service: Optional[
+            UltimateBackendDetailEnrichmentService
+        ] = None
 
         if self.ultimate_enabled:
             self._init_ultimate_backend(config)
@@ -45,6 +55,8 @@ class JobScheduler:
         ub_config = config.get("ultimate_backend", {})
         instance = ub_config.get("instance", {})
         import_config = ub_config.get("import", {})
+        grid_config = ub_config.get("grid_import", {})
+        detail_config = ub_config.get("detail_enrichment", {})
 
         self.ultimate_client = UltimateBackendClient(
             base_url=instance.get("base_url", "http://ultimate:7777"),
@@ -68,6 +80,18 @@ class JobScheduler:
             chunk_hours=import_config.get("chunk_hours", 24),
             max_concurrent_channels=import_config.get("max_concurrent_channels", 3),
             api_max_future_days=import_config.get("api_max_future_days", 3),
+        )
+
+        self.grid_import_service = UltimateBackendGridImportService(
+            client=self.ultimate_client,
+            chunk_hours=grid_config.get("chunk_hours", 3),
+            days_ahead=grid_config.get("days_ahead", 7),
+        )
+
+        self.detail_enrichment_service = UltimateBackendDetailEnrichmentService(
+            client=self.ultimate_client,
+            max_days=detail_config.get("max_days", 7),
+            max_attempts=detail_config.get("max_attempts", 3),
         )
 
         logger.info("Ultimate Backend integration initialized")
@@ -164,6 +188,36 @@ class JobScheduler:
         except Exception as e:
             logger.error(f"Full import job failed: {e}", exc_info=True)
 
+    def _run_grid_import_job(self):
+        """Run grid import for all Ultimate Backend providers."""
+        if not self.ultimate_enabled or not self.grid_import_service:
+            return
+        logger.info("Starting Ultimate Backend grid import job")
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            stats = loop.run_until_complete(self.grid_import_service.grid_import_all())
+            loop.close()
+            logger.info(f"Grid import completed: {stats}")
+        except Exception as e:
+            logger.error(f"Grid import job failed: {e}", exc_info=True)
+
+    def _run_detail_enrichment_job(self):
+        """Run detail enrichment for grid-imported Ultimate Backend programs."""
+        if not self.ultimate_enabled or not self.detail_enrichment_service:
+            return
+        logger.info("Starting Ultimate Backend detail enrichment job")
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            stats = loop.run_until_complete(
+                self.detail_enrichment_service.enrich_programs()
+            )
+            loop.close()
+            logger.info(f"Detail enrichment completed: {stats}")
+        except Exception as e:
+            logger.error(f"Detail enrichment job failed: {e}", exc_info=True)
+
     # ------------------------------------------------------------------
     # Scheduler lifecycle
     # ------------------------------------------------------------------
@@ -189,7 +243,7 @@ class JobScheduler:
 
             # Weekly discovery (default: Sunday at 02:00).
             if discovery_config.get("enabled", True):
-                discovery_day = discovery_config.get("day", 6)   # Monday=0, Sunday=6
+                discovery_day = discovery_config.get("day", 6)  # Monday=0, Sunday=6
                 discovery_hour = discovery_config.get("hour", 2)
                 self.scheduler.add_job(
                     self._run_ultimate_discovery_job,
@@ -220,6 +274,26 @@ class JobScheduler:
                 f"Scheduled daily Ultimate Backend incremental import "
                 f"at {inc_hour}:{inc_minute:02d}"
             )
+
+            # Grid import: 1 AM Vienna time.
+            self.scheduler.add_job(
+                self._run_grid_import_job,
+                trigger=CronTrigger(hour=1, minute=0, timezone="Europe/Vienna"),
+                id="daily_grid_import",
+                name="Ultimate Backend Grid Import",
+                replace_existing=True,
+            )
+            logger.info("Scheduled daily grid import at 1:00 AM Vienna time")
+
+            # Detail enrichment: 4 AM Vienna time (after grid import).
+            self.scheduler.add_job(
+                self._run_detail_enrichment_job,
+                trigger=CronTrigger(hour=4, minute=0, timezone="Europe/Vienna"),
+                id="daily_detail_enrichment",
+                name="Ultimate Backend Detail Enrichment",
+                replace_existing=True,
+            )
+            logger.info("Scheduled daily detail enrichment at 4:00 AM Vienna time")
 
         self.scheduler.start()
         logger.info("Job scheduler started")
@@ -291,6 +365,32 @@ class JobScheduler:
             self._run_ultimate_discovery_job,
             id="manual_ultimate_discovery",
             name="Manual Ultimate Backend Discovery",
+            replace_existing=True,
+        )
+
+    def trigger_grid_import_now(self):
+        """Immediately queue a grid import."""
+        if not self.ultimate_enabled or not self.grid_import_service:
+            logger.warning("Ultimate Backend grid import not enabled")
+            return
+        logger.info("Manually triggering grid import")
+        self.scheduler.add_job(
+            self._run_grid_import_job,
+            id="manual_grid_import",
+            name="Manual Grid Import",
+            replace_existing=True,
+        )
+
+    def trigger_detail_enrichment_now(self):
+        """Immediately queue a detail enrichment run."""
+        if not self.ultimate_enabled or not self.detail_enrichment_service:
+            logger.warning("Ultimate Backend detail enrichment not enabled")
+            return
+        logger.info("Manually triggering detail enrichment")
+        self.scheduler.add_job(
+            self._run_detail_enrichment_job,
+            id="manual_detail_enrichment",
+            name="Manual Detail Enrichment",
             replace_existing=True,
         )
 

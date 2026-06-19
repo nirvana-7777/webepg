@@ -280,15 +280,15 @@ class ProviderService:
             raise
 
     def create_ultimate_provider(
-            self,
-            name: str,
-            display_name: str,
-            ultimate_instance_id: int,
-            plugin_name: str = None,
-            country: str = None,
-            logo_url: str = None,
-            has_epg: bool = True,
-            requires_credentials: bool = False,
+        self,
+        name: str,
+        display_name: str,
+        ultimate_instance_id: int,
+        plugin_name: str = None,
+        country: str = None,
+        logo_url: str = None,
+        has_epg: bool = True,
+        requires_credentials: bool = False,
     ) -> Provider:
         """Create a provider from Ultimate Backend."""
         db = get_db()
@@ -305,15 +305,21 @@ class ProviderService:
                 cursor.execute(
                     sql,
                     (
-                        name, display_name, ultimate_instance_id,
-                        plugin_name, country, logo_url,
+                        name,
+                        display_name,
+                        ultimate_instance_id,
+                        plugin_name,
+                        country,
+                        logo_url,
                         1 if has_epg else 0,
                         1 if requires_credentials else 0,
                     ),
                 )
                 provider_id = cursor.lastrowid
 
-            logger.info(f"Created Ultimate Backend provider: {name} (ID: {provider_id})")
+            logger.info(
+                f"Created Ultimate Backend provider: {name} (ID: {provider_id})"
+            )
             return self.get_provider(provider_id)
         except Exception as e:
             logger.error(f"Error creating Ultimate provider '{name}': {e}")
@@ -321,7 +327,7 @@ class ProviderService:
 
     @staticmethod
     def update_provider_auth_config(
-            provider_id: int, credential_type: str, **credentials
+        provider_id: int, credential_type: str, **credentials
     ) -> bool:
         """Store provider credentials securely."""
         db = get_db()

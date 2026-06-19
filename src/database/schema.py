@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SchemaManager:
     """Manages database schema creation and migrations."""
 
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
     SCHEMA_SQL = """
     -- Schema version tracking
@@ -177,10 +177,14 @@ class SchemaManager:
                     "INSERT INTO schema_version (version) VALUES (?)",
                     (cls.SCHEMA_VERSION,),
                 )
-                logger.info(f"Initialized database with schema version {cls.SCHEMA_VERSION}")
+                logger.info(
+                    f"Initialized database with schema version {cls.SCHEMA_VERSION}"
+                )
             elif current_version < cls.SCHEMA_VERSION:
                 # Run migrations sequentially
-                logger.info(f"Database at version {current_version}, migrating to {cls.SCHEMA_VERSION}")
+                logger.info(
+                    f"Database at version {current_version}, migrating to {cls.SCHEMA_VERSION}"
+                )
                 cls._migrate_database(conn, current_version, cls.SCHEMA_VERSION)
             else:
                 logger.info(f"Database already at version {current_version}")
@@ -191,7 +195,7 @@ class SchemaManager:
 
     @classmethod
     def _migrate_database(
-            cls, conn: sqlite3.Connection, from_version: int, to_version: int
+        cls, conn: sqlite3.Connection, from_version: int, to_version: int
     ):
         """
         Run database migrations sequentially from from_version to to_version.
@@ -217,6 +221,7 @@ class SchemaManager:
         if from_version == 2 and to_version >= 3:
             logger.info("Applying migration 2 -> 3")
             from ..database.migrations.v3_ultimate_backend import migrate_v2_to_v3
+
             migrate_v2_to_v3(conn)
 
             # Update version to 3
@@ -231,6 +236,7 @@ class SchemaManager:
         if from_version == 3 and to_version >= 4:
             logger.info("Applying migration 3 -> 4")
             from ..database.migrations.v4_unified_providers import migrate_v3_to_v4
+
             migrate_v3_to_v4(conn)
 
             # Update version to 4
@@ -245,6 +251,7 @@ class SchemaManager:
         if from_version == 4 and to_version >= 5:
             logger.info("Applying migration 4 -> 5")
             from ..database.migrations.v5_add_channel_updated_at import migrate_v4_to_v5
+
             migrate_v4_to_v5(conn)
 
             # Update version to 5
@@ -259,6 +266,7 @@ class SchemaManager:
         if from_version == 5 and to_version >= 6:
             logger.info("Applying migration 5 -> 6")
             from ..database.migrations.v6_add_program_language import migrate_v5_to_v6
+
             migrate_v5_to_v6(conn)
 
             # Update version to 6
@@ -269,10 +277,29 @@ class SchemaManager:
                 cls._migrate_database(conn, 6, to_version)
             return
 
+        # Migration: version 6 -> 7
+        if from_version == 6 and to_version >= 7:
+            logger.info("Applying migration 6 -> 7")
+            from ..database.migrations.v7_epg_details import migrate_v6_to_v7
+
+            migrate_v6_to_v7(conn)
+
+            # Update version to 7
+            cls._update_schema_version(conn, 7)
+
+            # Continue to next migration if needed
+            if to_version > 7:
+                cls._migrate_database(conn, 7, to_version)
+            return
+
         # If we get here, no migration path was found
         if from_version < to_version:
-            logger.error(f"No migration path from version {from_version} to {to_version}")
-            raise ValueError(f"Cannot migrate from version {from_version} to {to_version}")
+            logger.error(
+                f"No migration path from version {from_version} to {to_version}"
+            )
+            raise ValueError(
+                f"Cannot migrate from version {from_version} to {to_version}"
+            )
 
     @classmethod
     def _migrate_v1_to_v2(cls, conn: sqlite3.Connection):
@@ -315,13 +342,12 @@ class SchemaManager:
             # Version already recorded, update timestamp
             cursor.execute(
                 "UPDATE schema_version SET applied_at = CURRENT_TIMESTAMP WHERE version = ?",
-                (version,)
+                (version,),
             )
         else:
             # Insert new version
             cursor.execute(
-                "INSERT INTO schema_version (version) VALUES (?)",
-                (version,)
+                "INSERT INTO schema_version (version) VALUES (?)", (version,)
             )
 
         conn.commit()

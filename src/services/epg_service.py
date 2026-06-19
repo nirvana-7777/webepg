@@ -667,13 +667,13 @@ class EPGService:
             db = get_db()
             epg_config = db.fetchone(
                 "SELECT future_days, past_days FROM provider_epg_config WHERE provider_id = ?",
-                (provider_id,)
+                (provider_id,),
             )
-            
+
             if start_time is None:
                 past_days = epg_config[1] if epg_config else 7
                 start_time = today_midnight - timedelta(days=past_days)
-            
+
             if end_time is None:
                 future_days = epg_config[0] if epg_config else 7
                 end_time = today_midnight + timedelta(days=future_days)

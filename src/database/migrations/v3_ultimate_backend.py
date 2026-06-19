@@ -171,46 +171,36 @@ def migrate_v2_to_v3(db_or_path):
 
         new_columns = [
             # Ultimate Backend linkage
-            ("ultimate_program_id",  "TEXT"),
-            ("ultimate_epg_id",      "INTEGER"),
-            ("schedule_id",          "TEXT"),
-
+            ("ultimate_program_id", "TEXT"),
+            ("ultimate_epg_id", "INTEGER"),
+            ("schedule_id", "TEXT"),
             # Genre — store raw API string as description; numeric DVB code separate
-            ("genre_description",    "TEXT"),
-            ("genre_dvb",            "INTEGER"),   # EPGGenre.* constant, NULL until mapped
-
+            ("genre_description", "TEXT"),
+            ("genre_dvb", "INTEGER"),  # EPGGenre.* constant, NULL until mapped
             # Categories (JSON array from API)
-            ("categories",           "TEXT"),
-
+            ("categories", "TEXT"),
             # Episode info
-            ("season_num",           "INTEGER"),
-            ("episode_num",          "INTEGER"),
-            ("has_episode_info",     "INTEGER DEFAULT 0"),
-
+            ("season_num", "INTEGER"),
+            ("episode_num", "INTEGER"),
+            ("has_episode_info", "INTEGER DEFAULT 0"),
             # People — directors stored as JSON array (API gives single string → wrapped)
-            ("director",             "TEXT"),   # keep raw scalar from API for reference
-            ("producer",             "TEXT"),
-
+            ("director", "TEXT"),  # keep raw scalar from API for reference
+            ("producer", "TEXT"),
             # Year as INTEGER (was production_year TEXT in some earlier schemas)
-            ("year",                 "INTEGER"),
-
+            ("year", "INTEGER"),
             # Rating as INTEGER star_rating (0-10 scale matching EPGEntry.star_rating)
-            ("star_rating",          "INTEGER"),
-
+            ("star_rating", "INTEGER"),
             # Media
-            ("thumbnail_url",        "TEXT"),
-            ("images",               "TEXT"),
-
+            ("thumbnail_url", "TEXT"),
+            ("images", "TEXT"),
             # EPGEntry fields not previously stored
-            ("original_title",       "TEXT"),
-            ("epg_flags",            "INTEGER DEFAULT 0"),
+            ("original_title", "TEXT"),
+            ("epg_flags", "INTEGER DEFAULT 0"),
         ]
 
         for col_name, col_def in new_columns:
             if col_name not in existing_columns:
-                cursor.execute(
-                    f"ALTER TABLE programs ADD COLUMN {col_name} {col_def}"
-                )
+                cursor.execute(f"ALTER TABLE programs ADD COLUMN {col_name} {col_def}")
                 logger.info(f"Added column '{col_name}' to programs table")
             else:
                 logger.debug(f"Column '{col_name}' already exists, skipping")
@@ -220,23 +210,30 @@ def migrate_v2_to_v3(db_or_path):
         # ======================================================================
 
         indexes = [
-            ("idx_programs_ultimate_epg_id",
-             "CREATE INDEX IF NOT EXISTS idx_programs_ultimate_epg_id ON programs(ultimate_epg_id)"),
-
-            ("idx_programs_original_title",
-             "CREATE INDEX IF NOT EXISTS idx_programs_original_title ON programs(channel_id, original_title)"),
-
-            ("idx_channel_import_state_status",
-             "CREATE INDEX IF NOT EXISTS idx_channel_import_state_status ON channel_import_state(sync_status)"),
-
-            ("idx_import_batches_channel",
-             "CREATE INDEX IF NOT EXISTS idx_import_batches_channel ON import_batches(ultimate_channel_id)"),
-
-            ("idx_ultimate_channels_provider",
-             "CREATE INDEX IF NOT EXISTS idx_ultimate_channels_provider ON ultimate_channels(ultimate_provider_id)"),
-
-            ("idx_ultimate_mappings_channel",
-             "CREATE INDEX IF NOT EXISTS idx_ultimate_mappings_channel ON ultimate_channel_mappings(channel_id)"),
+            (
+                "idx_programs_ultimate_epg_id",
+                "CREATE INDEX IF NOT EXISTS idx_programs_ultimate_epg_id ON programs(ultimate_epg_id)",
+            ),
+            (
+                "idx_programs_original_title",
+                "CREATE INDEX IF NOT EXISTS idx_programs_original_title ON programs(channel_id, original_title)",
+            ),
+            (
+                "idx_channel_import_state_status",
+                "CREATE INDEX IF NOT EXISTS idx_channel_import_state_status ON channel_import_state(sync_status)",
+            ),
+            (
+                "idx_import_batches_channel",
+                "CREATE INDEX IF NOT EXISTS idx_import_batches_channel ON import_batches(ultimate_channel_id)",
+            ),
+            (
+                "idx_ultimate_channels_provider",
+                "CREATE INDEX IF NOT EXISTS idx_ultimate_channels_provider ON ultimate_channels(ultimate_provider_id)",
+            ),
+            (
+                "idx_ultimate_mappings_channel",
+                "CREATE INDEX IF NOT EXISTS idx_ultimate_mappings_channel ON ultimate_channel_mappings(channel_id)",
+            ),
         ]
 
         for idx_name, idx_sql in indexes:
