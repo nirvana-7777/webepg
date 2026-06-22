@@ -1,3 +1,5 @@
+# src/services/ultimate_backend_grid_import_service.py
+
 """
 Grid import service for Ultimate Backend.
 
@@ -8,7 +10,6 @@ separate pass (see ultimate_backend_detail_enrichment_service.py).
 """
 
 import logging
-import pytz
 from datetime import datetime, timedelta, timezone
 from typing import Dict
 
@@ -17,8 +18,8 @@ from ..database.connection import get_db
 
 logger = logging.getLogger(__name__)
 
-# Vienna timezone for chunk alignment
-VIENNA_TZ = pytz.timezone("Europe/Vienna")
+# Use UTC for chunk alignment to match API expectations
+CHUNK_HOURS = 3
 
 
 class UltimateBackendGridImportService:
@@ -36,26 +37,22 @@ class UltimateBackendGridImportService:
 
     def _get_chunks(self, start: datetime, end: datetime):
         """
-        Yield 3-hour chunks aligned to Vienna timezone (0, 3, 6, 9, 12, 15, 18, 21).
+        Yield 3-hour chunks aligned to UTC (0, 3, 6, 9, 12, 15, 18, 21).
 
         This matches backend cache boundaries for efficiency.
         """
-        # Convert to Vienna timezone for alignment
-        start_vienna = start.astimezone(VIENNA_TZ)
-        end_vienna = end.astimezone(VIENNA_TZ)
-
-        # Round start up to next aligned hour
-        hour = start_vienna.hour
+        # Round start up to next aligned hour in UTC
+        hour = start.hour
         hours_to_next = (
             self.chunk_hours - (hour % self.chunk_hours)
         ) % self.chunk_hours
-        next_aligned = start_vienna.replace(minute=0, second=0, microsecond=0)
-        if hours_to_next > 0 or start_vienna.minute > 0 or start_vienna.second > 0:
+        next_aligned = start.replace(minute=0, second=0, microsecond=0)
+        if hours_to_next > 0 or start.minute > 0 or start.second > 0:
             next_aligned += timedelta(hours=hours_to_next)
 
         current = next_aligned
-        while current < end_vienna:
-            chunk_end = min(current + timedelta(hours=self.chunk_hours), end_vienna)
+        while current < end:
+            chunk_end = min(current + timedelta(hours=self.chunk_hours), end)
             yield current, chunk_end
             current = chunk_end
 
