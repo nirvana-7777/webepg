@@ -5,7 +5,20 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Add grid EPG">
+      <change afterPath="$PROJECT_DIR$/src/api/admin.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/api/aliases.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/api/channels.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/api/providers.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/api/ultimate/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/api/ultimate/channels.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/api/ultimate/helpers.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/api/ultimate/operations.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/api/ultimate/providers.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/api/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/api/handlers.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/api/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/server.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -13,7 +26,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="53" />
+    <option name="cachedIndexableFilesCount" value="56" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -43,23 +56,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.000397636847659" />
-      <entry key="MS500" value="1.2722323611614317" />
-      <entry key="S2" value="2.1778652093081723" />
-      <entry key="S5" value="2.614017018885325" />
-      <entry key="S10" value="2.7958778561559585" />
-      <entry key="S30" value="2.9293136488464624" />
-      <entry key="S60" value="2.964314716407194" />
-      <entry key="M2" value="2.9820709505686898" />
-      <entry key="M5" value="2.992807528584149" />
-      <entry key="M10" value="2.9964002794881353" />
-      <entry key="M15" value="2.997599411216978" />
-      <entry key="M30" value="2.998799317877215" />
-      <entry key="H1" value="2.9993995619725773" />
-      <entry key="H2" value="2.9996997567406285" />
-      <entry key="H4" value="2.99984987230838" />
-      <entry key="D1" value="2.999974977876084" />
-      <entry key="W1" value="2.9999964253902487" />
+      <entry key="MS100" value="1.0000001142044772" />
+      <entry key="MS500" value="1.0852378725008853" />
+      <entry key="S2" value="2.9620732296501364" />
+      <entry key="S5" value="5.13121247729594" />
+      <entry key="S10" value="6.360131597717445" />
+      <entry key="S30" value="7.39938207868" />
+      <entry key="S60" value="7.692337696350391" />
+      <entry key="M2" value="7.844281667759978" />
+      <entry key="M5" value="7.937253332780611" />
+      <entry key="M10" value="7.968549569648026" />
+      <entry key="M15" value="7.979015873502839" />
+      <entry key="M30" value="7.989499340183284" />
+      <entry key="H1" value="7.994747519052975" />
+      <entry key="H2" value="7.997373221529548" />
+      <entry key="H4" value="7.998686476235866" />
+      <entry key="D1" value="7.999781060685556" />
+      <entry key="W1" value="7.999968722497404" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -81,23 +94,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9730285430025141" />
-      <entry key="MS500" value="1.2634140272781704" />
-      <entry key="S2" value="2.1729850835164677" />
-      <entry key="S5" value="2.6115552560408215" />
-      <entry key="S10" value="2.7945410106107857" />
-      <entry key="S30" value="2.928842148507612" />
-      <entry key="S60" value="2.964075573319294" />
-      <entry key="M2" value="2.9819505185543718" />
-      <entry key="M5" value="2.9927591476794864" />
-      <entry key="M10" value="2.9963760542196676" />
-      <entry key="M15" value="2.9975832532912006" />
-      <entry key="M30" value="2.998791235038455" />
-      <entry key="H1" value="2.9993955195837656" />
-      <entry key="H2" value="2.999697735303806" />
-      <entry key="H4" value="2.9998488615293573" />
-      <entry key="D1" value="2.9999748094044945" />
-      <entry key="W1" value="2.9999964013226728" />
+      <entry key="MS100" value="0.9265881700784271" />
+      <entry key="MS500" value="1.0681723481048608" />
+      <entry key="S2" value="2.9398319698816695" />
+      <entry key="S5" value="5.113555826415217" />
+      <entry key="S10" value="6.348857993268974" />
+      <entry key="S30" value="7.394943257978039" />
+      <entry key="S60" value="7.690022992875552" />
+      <entry key="M2" value="7.843099661966332" />
+      <entry key="M5" value="7.936774504109789" />
+      <entry key="M10" value="7.968309141675756" />
+      <entry key="M15" value="7.978855362245893" />
+      <entry key="M30" value="7.9894189714109425" />
+      <entry key="H1" value="7.994707306348394" />
+      <entry key="H2" value="7.997353108093594" />
+      <entry key="H4" value="7.998676417746467" />
+      <entry key="D1" value="7.999779384024581" />
+      <entry key="W1" value="7.999968482968381" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -191,14 +204,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00026" summary="Introduce Channel Aliases">
-      <option name="closed" value="true" />
-      <created>1768322608553</created>
-      <option name="number" value="00026" />
-      <option name="presentableId" value="LOCAL-00026" />
-      <option name="project" value="LOCAL" />
-      <updated>1768322608553</updated>
     </task>
     <task id="LOCAL-00027" summary="Introduce Channel Aliases">
       <option name="closed" value="true" />
@@ -584,7 +589,15 @@
       <option name="project" value="LOCAL" />
       <updated>1781878989973</updated>
     </task>
-    <option name="localTasksCounter" value="75" />
+    <task id="LOCAL-00075" summary="Add grid EPG">
+      <option name="closed" value="true" />
+      <created>1782121972453</created>
+      <option name="number" value="00075" />
+      <option name="presentableId" value="LOCAL-00075" />
+      <option name="project" value="LOCAL" />
+      <updated>1782121972453</updated>
+    </task>
+    <option name="localTasksCounter" value="76" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

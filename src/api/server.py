@@ -1,4 +1,3 @@
-# src/api/server.py
 """
 Flask HTTP server for EPG API.
 """
@@ -11,7 +10,8 @@ from flask_cors import CORS
 from ..scheduler.jobs import JobScheduler
 from ..services.epg_service import EPGService
 from ..services.provider_service import ProviderService
-from .handlers import api_bp, init_handlers
+# CHANGE: Import from the new api package (__init__.py) instead of handlers.py
+from . import api_bp, init_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +44,10 @@ def create_app(config: dict = None, scheduler: JobScheduler = None) -> Flask:
     epg_service = EPGService()
     provider_service = ProviderService()
 
-    # Initialize handlers with services
+    # Initialize handlers with services (This populates ServiceRegistry and registers sub-blueprints)
     init_handlers(epg_service, provider_service, scheduler)
 
-    # Register blueprint
+    # Register parent blueprint
     app.register_blueprint(api_bp)
 
     # Add request logging
