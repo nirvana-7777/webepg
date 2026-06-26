@@ -4,21 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Add grid EPG">
-      <change afterPath="$PROJECT_DIR$/src/api/admin.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/api/aliases.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/api/channels.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/api/providers.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/api/ultimate/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/api/ultimate/channels.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/api/ultimate/helpers.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/api/ultimate/operations.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/api/ultimate/providers.py" afterDir="false" />
+    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Add endpoints to trigger provider import">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/api/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/api/handlers.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/api/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/server.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/api/ultimate/providers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/ultimate/providers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_discovery_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_discovery_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -56,23 +46,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0000001142044772" />
-      <entry key="MS500" value="1.0852378725008853" />
-      <entry key="S2" value="2.9620732296501364" />
-      <entry key="S5" value="5.13121247729594" />
-      <entry key="S10" value="6.360131597717445" />
-      <entry key="S30" value="7.39938207868" />
-      <entry key="S60" value="7.692337696350391" />
-      <entry key="M2" value="7.844281667759978" />
-      <entry key="M5" value="7.937253332780611" />
-      <entry key="M10" value="7.968549569648026" />
-      <entry key="M15" value="7.979015873502839" />
-      <entry key="M30" value="7.989499340183284" />
-      <entry key="H1" value="7.994747519052975" />
-      <entry key="H2" value="7.997373221529548" />
-      <entry key="H4" value="7.998686476235866" />
-      <entry key="D1" value="7.999781060685556" />
-      <entry key="W1" value="7.999968722497404" />
+      <entry key="MS100" value="1.0064495636788466" />
+      <entry key="MS500" value="1.4858377709535038" />
+      <entry key="S2" value="3.3246723442375363" />
+      <entry key="S5" value="5.6793317052608145" />
+      <entry key="S10" value="7.347353260814736" />
+      <entry key="S30" value="8.969546302667249" />
+      <entry key="S60" value="9.464052920276004" />
+      <entry key="M2" value="9.793873229797724" />
+      <entry key="M5" value="11.07520479534683" />
+      <entry key="M10" value="13.024717622775082" />
+      <entry key="M15" value="14.196994147974037" />
+      <entry key="M30" value="15.801467624534247" />
+      <entry key="H1" value="16.814222882450387" />
+      <entry key="H2" value="17.383730473394483" />
+      <entry key="H4" value="17.68578528797134" />
+      <entry key="D1" value="17.94676575415174" />
+      <entry key="W1" value="17.992373645818926" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -94,23 +84,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9265881700784271" />
-      <entry key="MS500" value="1.0681723481048608" />
-      <entry key="S2" value="2.9398319698816695" />
-      <entry key="S5" value="5.113555826415217" />
-      <entry key="S10" value="6.348857993268974" />
-      <entry key="S30" value="7.394943257978039" />
-      <entry key="S60" value="7.690022992875552" />
-      <entry key="M2" value="7.843099661966332" />
-      <entry key="M5" value="7.936774504109789" />
-      <entry key="M10" value="7.968309141675756" />
-      <entry key="M15" value="7.978855362245893" />
-      <entry key="M30" value="7.9894189714109425" />
-      <entry key="H1" value="7.994707306348394" />
-      <entry key="H2" value="7.997353108093594" />
-      <entry key="H4" value="7.998676417746467" />
-      <entry key="D1" value="7.999779384024581" />
-      <entry key="W1" value="7.999968482968381" />
+      <entry key="MS100" value="0.9456953981425731" />
+      <entry key="MS500" value="1.41528078958531" />
+      <entry key="S2" value="3.2245321060698284" />
+      <entry key="S5" value="5.619403297055382" />
+      <entry key="S10" value="7.312685607018466" />
+      <entry key="S30" value="8.956737435708682" />
+      <entry key="S60" value="9.457475233071467" />
+      <entry key="M2" value="9.790529593349843" />
+      <entry key="M5" value="11.073788957562313" />
+      <entry key="M10" value="13.02395070443189" />
+      <entry key="M15" value="14.19645924435879" />
+      <entry key="M30" value="15.801184010771431" />
+      <entry key="H1" value="16.814075975666427" />
+      <entry key="H2" value="17.383655586169812" />
+      <entry key="H4" value="17.685747464132486" />
+      <entry key="D1" value="17.94675939542578" />
+      <entry key="W1" value="17.992372736062595" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -204,14 +194,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00027" summary="Introduce Channel Aliases">
-      <option name="closed" value="true" />
-      <created>1768325673715</created>
-      <option name="number" value="00027" />
-      <option name="presentableId" value="LOCAL-00027" />
-      <option name="project" value="LOCAL" />
-      <updated>1768325673715</updated>
     </task>
     <task id="LOCAL-00028" summary="Introduce Channel Aliases">
       <option name="closed" value="true" />
@@ -597,7 +579,15 @@
       <option name="project" value="LOCAL" />
       <updated>1782121972453</updated>
     </task>
-    <option name="localTasksCounter" value="76" />
+    <task id="LOCAL-00076" summary="Add endpoints to trigger provider import">
+      <option name="closed" value="true" />
+      <created>1782324108464</created>
+      <option name="number" value="00076" />
+      <option name="presentableId" value="LOCAL-00076" />
+      <option name="project" value="LOCAL" />
+      <updated>1782324108464</updated>
+    </task>
+    <option name="localTasksCounter" value="77" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -613,7 +603,8 @@
     <MESSAGE value="Use epg_window from ultimate_backend" />
     <MESSAGE value="Add language to database" />
     <MESSAGE value="Add grid EPG" />
-    <option name="LAST_COMMIT_MESSAGE" value="Add grid EPG" />
+    <MESSAGE value="Add endpoints to trigger provider import" />
+    <option name="LAST_COMMIT_MESSAGE" value="Add endpoints to trigger provider import" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/webepg$main.coverage" NAME="main Coverage Results" MODIFIED="1766784290681" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

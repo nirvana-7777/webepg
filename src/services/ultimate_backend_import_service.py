@@ -23,6 +23,7 @@ from typing import Dict, Optional
 from ..clients.models import UltimateBackendProgram
 from ..clients.ultimate_backend_client import UltimateBackendClient
 from ..database.connection import get_db
+from .ultimate_backend_discovery_service import UltimateBackendDiscoveryService
 
 logger = logging.getLogger(__name__)
 
@@ -500,24 +501,11 @@ class UltimateBackendImportService:
         """
         db = get_db()
 
-        # Get or create provider using unified schema
-        provider_row = db.fetchone(
-            "SELECT id FROM providers WHERE name = ? AND source_type = 'ultimate_backend'",
-            (provider_name,),
+        provider_id = UltimateBackendDiscoveryService.sync_unified_provider_record(
+            provider_name=provider_name,
+            provider_label=provider_name.replace("_", " ").title(),
+            has_epg=True,
         )
-
-        if not provider_row:
-            # Create provider with NULL xmltv_url (allowed in v4)
-            db.execute(
-                """
-                INSERT INTO providers (name, display_name, source_type, has_epg)
-                VALUES (?, ?, 'ultimate_backend', 1)
-                """,
-                (provider_name, provider_name.replace("_", " ").title()),
-            )
-            provider_row = db.fetchone("SELECT last_insert_rowid()")
-
-        provider_id = provider_row[0]
 
         new_start = program.start.isoformat()
         new_end = program.end.isoformat()

@@ -6,7 +6,6 @@ import logging
 from datetime import datetime
 from typing import Dict, Optional
 
-from ..clients.models import EPGWindow
 from ..clients.ultimate_backend_client import UltimateBackendClient
 from ..database.connection import get_db
 from .epg_service import EPGService
@@ -144,6 +143,62 @@ class UltimateBackendDiscoveryService:
         return row[0]
 
     @staticmethod
+    def sync_unified_provider_record(
+            provider_name: str,
+            provider_label: str,
+            has_epg: bool,
+            instance_id: Optional[int] = None,
+    ) -> int:
+        """
+        Get-or-create the unified `providers` row for an Ultimate Backend
+        provider, converting a pre-existing row of a different source_type
+        (e.g. a legacy XMLTV entry) in place rather than inserting a second
+        row with the same name.
+
+        This is the single source of truth for this lookup — do not
+        reimplement it elsewhere (see ultimate_backend_import_service._upsert_program,
+        which used to do its own strict source_type-filtered version and could
+        silently create a duplicate `providers` row when discovery hadn't
+        converted the legacy row yet).
+        """
+        db = get_db()
+        now = datetime.utcnow().isoformat()
+
+        existing_provider = db.fetchone(
+            "SELECT id, source_type FROM providers WHERE name = ?",
+            (provider_name,),
+        )
+
+        if existing_provider:
+            db.execute(
+                """
+                UPDATE providers
+                SET display_name = ?,
+                    source_type = 'ultimate_backend',
+                    ultimate_instance_id = ?,
+                    has_epg = ?,
+                    enabled = 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (provider_label, instance_id, 1 if has_epg else 0, now, existing_provider[0]),
+            )
+            logger.debug(f"Synced providers table for: {provider_name}")
+            return existing_provider[0]
+
+        cursor = db.execute(
+            """
+            INSERT INTO providers (
+                name, display_name, source_type, ultimate_instance_id,
+                has_epg, enabled, created_at, updated_at
+            ) VALUES (?, ?, 'ultimate_backend', ?, ?, 1, ?, ?)
+            """,
+            (provider_name, provider_label, instance_id, 1 if has_epg else 0, now, now),
+        )
+        logger.info(f"Created providers table entry for: {provider_name}")
+        return cursor.lastrowid
+
+    @staticmethod
     async def _upsert_provider(
         instance_id: int,
         provider_name: str,
@@ -227,61 +282,9 @@ class UltimateBackendDiscoveryService:
         # Step 2: Sync to unified providers table
         # ======================================================================
 
-        # Check if provider exists in providers table
-        existing_provider = db.fetchone(
-            "SELECT id, source_type FROM providers WHERE name = ?",
-            (provider_name,),
+        provider_id = UltimateBackendDiscoveryService.sync_unified_provider_record(
+            provider_name, provider_label, has_epg, instance_id
         )
-
-        if existing_provider:
-            # Update existing provider record
-            db.execute(
-                """
-                UPDATE providers
-                SET display_name = ?,
-                    source_type = 'ultimate_backend',
-                    ultimate_instance_id = ?,
-                    has_epg = ?,
-                    enabled = 1,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    provider_label,
-                    instance_id,
-                    1 if has_epg else 0,
-                    now,
-                    existing_provider[0],
-                ),
-            )
-            logger.debug(f"Updated providers table for: {provider_name}")
-            provider_id = existing_provider[0]
-        else:
-            # Insert new provider record
-            cursor = db.execute(
-                """
-                INSERT INTO providers (
-                    name,
-                    display_name,
-                    source_type,
-                    ultimate_instance_id,
-                    has_epg,
-                    enabled,
-                    created_at,
-                    updated_at
-                ) VALUES (?, ?, 'ultimate_backend', ?, ?, 1, ?, ?)
-                """,
-                (
-                    provider_name,
-                    provider_label,
-                    instance_id,
-                    1 if has_epg else 0,
-                    now,
-                    now,
-                ),
-            )
-            provider_id = cursor.lastrowid
-            logger.info(f"Created providers table entry for: {provider_name}")
 
         # ======================================================================
         # Step 3: Also ensure provider_epg_config exists for EPG-enabled providers

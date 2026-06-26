@@ -110,6 +110,35 @@ def trigger_ultimate_provider_import(identifier):
         logger.error(f"Error triggering Ultimate Backend provider import for {identifier}: {e}")
         return jsonify({"error": str(e)}), 500
 
+@ultimate_providers_bp.route("/ultimate/providers/<identifier>/grid-import", methods=["POST"])
+def trigger_ultimate_provider_grid_import(identifier):
+    scheduler = ServiceRegistry.scheduler
+    grid_service = getattr(scheduler, "ultimate_grid_import_service", None)
+    if not scheduler or not grid_service:
+        return jsonify({"error": "Ultimate Backend grid import not initialized"}), 500
+
+    provider = resolve_ultimate_provider(identifier)
+    if not provider:
+        return jsonify({"error": f"Provider not found: {identifier}"}), 404
+
+    lock_key = f"grid:{provider['provider_name']}"
+    with _ultimate_provider_imports_lock:
+        if lock_key in _ultimate_provider_imports_in_progress:
+            return jsonify({"error": "Grid import already in progress"}), 409
+        _ultimate_provider_imports_in_progress.add(lock_key)
+
+    def run_grid_import():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(grid_service.grid_import_provider(provider["provider_name"]))
+        finally:
+            loop.close()
+            with _ultimate_provider_imports_lock:
+                _ultimate_provider_imports_in_progress.discard(lock_key)
+
+    threading.Thread(target=run_grid_import, daemon=True).start()
+    return jsonify({"message": f"Grid import triggered for '{provider['provider_name']}'"}), 202
 
 @ultimate_providers_bp.route("/ultimate/providers/<identifier>/status", methods=["GET"])
 def get_ultimate_provider_status(identifier):
