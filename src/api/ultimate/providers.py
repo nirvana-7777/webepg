@@ -113,7 +113,7 @@ def trigger_ultimate_provider_import(identifier):
 @ultimate_providers_bp.route("/ultimate/providers/<identifier>/grid-import", methods=["POST"])
 def trigger_ultimate_provider_grid_import(identifier):
     scheduler = ServiceRegistry.scheduler
-    grid_service = getattr(scheduler, "ultimate_grid_import_service", None)
+    grid_service = getattr(scheduler, "grid_import_service", None)
     if not scheduler or not grid_service:
         return jsonify({"error": "Ultimate Backend grid import not initialized"}), 500
 
