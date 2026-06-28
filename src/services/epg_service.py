@@ -578,6 +578,30 @@ class EPGService:
 
         return None
 
+    @staticmethod
+    def _resolve_ultimate_provider_id(provider: Provider) -> Optional[int]:
+        """
+        Resolve ultimate_providers.id for an Ultimate Backend Provider row.
+
+        Looks up by provider_name only, NOT instance_id. provider.ultimate_instance_id
+        can be NULL on some rows (root cause not yet fully traced — see provider_service.py
+        create_ultimate_provider, which writes ultimate_instance_id without validation),
+        and "instance_id = NULL" never matches in SQL, silently returning no rows.
+
+        Assumes provider_name is unique across ultimate_providers, which holds today
+        because only a single 'main' instance is ever created. If a second instance is
+        ever added this assumption breaks and this needs an instance-aware lookup.
+        """
+        db = get_db()
+        row = db.fetchone(
+            "SELECT id FROM ultimate_providers WHERE provider_name = ?",
+            (provider.name,),
+        )
+        if not row:
+            logger.warning(f"Could not find ultimate_provider for {provider.name}")
+            return None
+        return row[0]
+
     def get_provider_channels(self, provider_id: int) -> List[Channel]:
         """
         Get all channels for a provider.
@@ -609,17 +633,11 @@ class EPGService:
             rows = db.fetchall(sql, (provider_id,))
         else:
             # For Ultimate Backend providers, use ultimate_channel_mappings.
-            # We need the ID from ultimate_providers table.
-            up_row = db.fetchone(
-                "SELECT id FROM ultimate_providers WHERE instance_id = ? AND provider_name = ?",
-                (provider.ultimate_instance_id, provider.name),
-            )
-            ultimate_provider_id = up_row[0] if up_row else None
+            ultimate_provider_id = self._resolve_ultimate_provider_id(provider)
 
             if not ultimate_provider_id:
                 logger.warning(
-                    f"Could not find ultimate_provider for {provider.name} "
-                    f"(instance: {provider.ultimate_instance_id})"
+                    f"Could not find ultimate_provider for {provider.name}"
                 )
                 return []
 
@@ -704,11 +722,7 @@ class EPGService:
                 channel_identifier_map[channel.id] = row[0] if row else str(channel.id)
         else:
             # For Ultimate Backend, get ultimate_channel_id via ultimate_provider_id
-            up_row = db.fetchone(
-                "SELECT id FROM ultimate_providers WHERE instance_id = ? AND provider_name = ?",
-                (provider.ultimate_instance_id, provider.name),
-            )
-            ultimate_provider_id = up_row[0] if up_row else None
+            ultimate_provider_id = self._resolve_ultimate_provider_id(provider)
 
             if ultimate_provider_id:
                 for channel in channels:
