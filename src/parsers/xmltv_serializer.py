@@ -3,7 +3,7 @@ XMLTV serializer for exporting EPG data to XMLTV format.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom import minidom
@@ -31,8 +31,15 @@ class XMLTVSerializer:
         if dt.tzinfo is None:
             # Assume UTC if naive
             return f"{dt.strftime('%Y%m%d%H%M%S')} +0000"
-        # Convert to UTC and format
-        utc_dt = dt.astimezone()
+        # Convert to UTC explicitly and format.
+        # NOTE: dt.astimezone() with no argument converts to the *system
+        # local* timezone, not UTC. That was the bug here: an aware UTC
+        # datetime got silently shifted to local wall-clock time (CEST,
+        # +2h) while still being labeled "+0000" below. Passing
+        # timezone.utc explicitly is what actually guarantees UTC output
+        # regardless of what tzinfo dt arrives with or what timezone the
+        # host machine is running in.
+        utc_dt = dt.astimezone(timezone.utc)
         return f"{utc_dt.strftime('%Y%m%d%H%M%S')} +0000"
 
     @staticmethod
@@ -302,7 +309,12 @@ class XMLTVSerializer:
         # Create root element
         tv_attrs = {
             "generator-info-name": generator_info_name,
-            "date": self._format_datetime(datetime.utcnow()),
+            # datetime.utcnow() is deprecated (3.12+) and returns a naive
+            # datetime that merely *happens* to hold UTC values. Using
+            # datetime.now(timezone.utc) instead makes the UTC-ness
+            # explicit/aware, which is exactly the property _format_datetime
+            # now also depends on.
+            "date": self._format_datetime(datetime.now(timezone.utc)),
         }
 
         if generator_info_url:
