@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SchemaManager:
     """Manages database schema creation and migrations."""
 
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 8
 
     SCHEMA_SQL = """
     -- Schema version tracking
@@ -290,6 +290,21 @@ class SchemaManager:
             # Continue to next migration if needed
             if to_version > 7:
                 cls._migrate_database(conn, 7, to_version)
+            return
+
+        # Migration: version 7 -> 8
+        if from_version == 7 and to_version >= 8:
+            logger.info("Applying migration 7 -> 8")
+            from ..database.migrations.v8_channel_import_errors import migrate_v7_to_v8
+
+            migrate_v7_to_v8(conn)
+
+            # Update version to 8
+            cls._update_schema_version(conn, 8)
+
+            # Continue to next migration if needed
+            if to_version > 8:
+                cls._migrate_database(conn, 8, to_version)
             return
 
         # If we get here, no migration path was found

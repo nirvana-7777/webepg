@@ -836,11 +836,22 @@ class UltimateBackendImportService:
 
     @staticmethod
     def _parse_datetime_safe(value: Optional[str]) -> Optional[datetime]:
-        """Parse an ISO datetime string, returning None on any failure."""
+        """Parse an ISO datetime string, returning None on any failure.
+
+        Always returns a timezone-aware datetime. Some rows in
+        channel_import_state predate consistent UTC-aware writes and
+        contain naive ISO strings (no offset); those are assumed to be
+        UTC, since every comparison against this value in the import
+        loop uses datetime.now(timezone.utc) and a naive/aware mismatch
+        raises TypeError.
+        """
         if not value:
             return None
         try:
-            return datetime.fromisoformat(value)
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
         except (ValueError, TypeError):
             return None
 

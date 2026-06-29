@@ -3,7 +3,7 @@ Discovery service for Ultimate Backend providers and channels.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from ..clients.ultimate_backend_client import UltimateBackendClient
@@ -162,7 +162,7 @@ class UltimateBackendDiscoveryService:
         converted the legacy row yet).
         """
         db = get_db()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         existing_provider = db.fetchone(
             "SELECT id, source_type FROM providers WHERE name = ?",
@@ -220,7 +220,7 @@ class UltimateBackendDiscoveryService:
             Provider ID from ultimate_providers table
         """
         db = get_db()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         # ======================================================================
         # Step 1: Upsert to ultimate_providers table
@@ -460,7 +460,7 @@ class UltimateBackendDiscoveryService:
 
             if updates:
                 updates.append("updated_at = ?")
-                params.append(datetime.utcnow().isoformat())
+                params.append(datetime.now(timezone.utc).isoformat())
                 params.append(ultimate_channel_db_id)
 
                 db.execute(
@@ -542,7 +542,7 @@ class UltimateBackendDiscoveryService:
     async def _update_discovery_timestamp(instance_id: int):
         """Update last_discovered_at for all providers in this instance."""
         db = get_db()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         db.execute(
             "UPDATE ultimate_providers SET last_discovered_at = ? WHERE instance_id = ?",
