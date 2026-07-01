@@ -162,6 +162,55 @@ class UltimateBackendImportService:
 
         return self._compile_stats(rows, results, "Incremental import")
 
+    async def incremental_import_provider(self, provider_name: str) -> Dict:
+        """
+        Incremental import for a single provider.
+
+        Used as a channel-based fallback when the grid endpoint returns no
+        data for a provider (i.e. the provider doesn't support /epg/grid).
+        Shares all logic with incremental_import_all() — only the channel
+        query is scoped to one provider.
+
+        The HTTP client session is closed before returning.
+        """
+        logger.info(
+            f"Starting channel-based fallback import for provider: {provider_name}"
+        )
+
+        # Fresh semaphore for this event loop.
+        self._semaphore = None
+
+        db = get_db()
+        rows = self._fetch_active_channel_rows(db, provider_name=provider_name)
+
+        if not rows:
+            logger.info(f"No active channels found for provider: {provider_name}")
+            return {"total_channels": 0, "results": []}
+
+        logger.info(f"Found {len(rows)} channels for fallback import of {provider_name}")
+
+        try:
+            tasks = [
+                self._import_channel_with_semaphore(
+                    ultimate_channel_db_id=row["ultimate_channel_id"],
+                    provider_name=row["provider_name"],
+                    ultimate_channel_id=row["channel_id"],
+                    logical_channel_id=row["logical_channel_id"],
+                    channel_name=row["channel_name"],
+                    provider_future_days=row.get("future_days"),
+                    provider_past_days=row.get("past_days"),
+                    provider_chunk_hours=row.get("chunk_hours"),
+                )
+                for row in rows
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            await self.client.close()
+
+        return self._compile_stats(
+            rows, results, f"Channel-based fallback import for {provider_name}"
+        )
+
     # ------------------------------------------------------------------
     # Per-channel import
     # ------------------------------------------------------------------
@@ -781,9 +830,14 @@ class UltimateBackendImportService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _fetch_active_channel_rows(db) -> list:
-        """Return all enabled channels that have a logical channel mapping, including EPG config."""
-        return db.fetchall_as_dict("""
+    def _fetch_active_channel_rows(db, provider_name: Optional[str] = None) -> list:
+        """Return all enabled channels that have a logical channel mapping, including EPG config.
+
+        Args:
+            provider_name: If supplied, only rows for that provider are returned.
+                           Used by incremental_import_provider() for targeted fallback.
+        """
+        sql = """
             SELECT
                 uc.id                   AS ultimate_channel_id,
                 uc.ultimate_channel_id  AS channel_id,
@@ -799,7 +853,12 @@ class UltimateBackendImportService:
             JOIN providers p ON p.name = up.provider_name AND p.source_type = 'ultimate_backend'
             LEFT JOIN provider_epg_config pec ON p.id = pec.provider_id
             WHERE uc.enabled = 1 AND up.enabled = 1
-        """)
+        """
+        params: tuple = ()
+        if provider_name:
+            sql += " AND up.provider_name = ?"
+            params = (provider_name,)
+        return db.fetchall_as_dict(sql, params)
 
     @staticmethod
     def _compile_stats(rows: list, results: tuple, label: str) -> Dict:

@@ -189,7 +189,16 @@ class JobScheduler:
             logger.error(f"Full import job failed: {e}", exc_info=True)
 
     def _run_grid_import_job(self):
-        """Run grid import for all Ultimate Backend providers."""
+        """
+        Primary Ultimate Backend grid import.
+
+        After the grid run, inspect per-provider stats.  A provider that
+        returned zero programs with no errors has not implemented /epg/grid;
+        we fall back to the channel-based import for that provider only.
+        Providers with errors are logged but NOT fallen back to automatically
+        — an error is a different failure mode (network, auth, …) and
+        silently retrying via a slower path would mask it.
+        """
         if not self.ultimate_enabled or not self.grid_import_service:
             return
         logger.info("Starting Ultimate Backend grid import job")
@@ -201,6 +210,58 @@ class JobScheduler:
             logger.info(f"Grid import completed: {stats}")
         except Exception as e:
             logger.error(f"Grid import job failed: {e}", exc_info=True)
+            return
+
+        for provider_stats in stats.get("providers", []):
+            provider_name = provider_stats.get("provider")
+            errors = provider_stats.get("errors", [])
+            total_programs = (
+                provider_stats.get("programs_inserted", 0)
+                + provider_stats.get("programs_updated", 0)
+                + provider_stats.get("programs_skipped", 0)
+            )
+
+            if errors:
+                # Real errors — log loudly, don't mask with a fallback.
+                logger.error(
+                    f"Grid import errors for {provider_name} "
+                    f"({len(errors)} error(s)): {errors[:5]}"  # first 5 to avoid log spam
+                )
+            elif total_programs == 0:
+                # Clean empty response → provider doesn't support /epg/grid.
+                logger.info(
+                    f"Grid returned no programs for {provider_name} "
+                    f"(no errors) — triggering channel-based fallback"
+                )
+                Thread(
+                    target=self._run_channel_import_fallback,
+                    args=(provider_name,),
+                    daemon=True,
+                ).start()
+
+    def _run_channel_import_fallback(self, provider_name: str):
+        """
+        Channel-based fallback import for a single provider.
+
+        Called from _run_grid_import_job when /epg/grid returns empty for
+        a provider.  Runs in a daemon thread so it doesn't block the scheduler.
+        """
+        if not self.ultimate_enabled or not self._ultimate_import_service:
+            return
+        logger.info(f"Starting channel-based fallback import for {provider_name}")
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(
+                self._ultimate_import_service.incremental_import_provider(provider_name)
+            )
+            loop.close()
+            logger.info(f"Channel-based fallback complete for {provider_name}: {result}")
+            self._run_cleanup_job()
+        except Exception as e:
+            logger.error(
+                f"Channel-based fallback failed for {provider_name}: {e}", exc_info=True
+            )
 
     def _run_detail_enrichment_job(self):
         """Run detail enrichment for grid-imported Ultimate Backend programs."""
@@ -259,23 +320,9 @@ class JobScheduler:
                     f"day={discovery_day} at {discovery_hour}:00"
                 )
 
-            # Daily incremental import, 30 minutes after the XMLTV job.
-            inc_minute = minute + 30
-            inc_hour = hour + (1 if inc_minute >= 60 else 0)
-            inc_minute = inc_minute % 60
-            self.scheduler.add_job(
-                self._run_ultimate_incremental_job,
-                trigger=CronTrigger(hour=inc_hour, minute=inc_minute),
-                id="daily_ultimate_import",
-                name="Daily Ultimate Backend Incremental Import",
-                replace_existing=True,
-            )
-            logger.info(
-                f"Scheduled daily Ultimate Backend incremental import "
-                f"at {inc_hour}:{inc_minute:02d}"
-            )
-
             # Grid import: 1 AM Vienna time.
+            # Channel-based import is NOT scheduled — it runs as a fallback
+            # only when grid_import_all() returns empty for a provider.
             self.scheduler.add_job(
                 self._run_grid_import_job,
                 trigger=CronTrigger(hour=1, minute=0, timezone="Europe/Vienna"),
@@ -327,18 +374,28 @@ class JobScheduler:
             replace_existing=True,
         )
 
-    def trigger_ultimate_incremental_now(self):
-        """Immediately queue an incremental Ultimate Backend import."""
+    def trigger_ultimate_incremental_now(self, provider_name: Optional[str] = None):
+        """
+        Immediately run a channel-based import outside the daily schedule.
+
+        Args:
+            provider_name: If supplied, only that provider is imported.
+                           If None, all providers are imported (same as
+                           the old scheduled incremental job).
+        """
         if not self.ultimate_enabled:
             logger.warning("Ultimate Backend not enabled")
             return
-        logger.info("Manually triggering Ultimate Backend incremental import")
-        self.scheduler.add_job(
-            self._run_ultimate_incremental_job,
-            id="manual_ultimate_incremental_import",
-            name="Manual Ultimate Backend Incremental Import",
-            replace_existing=True,
-        )
+        if provider_name:
+            logger.info(f"Manually triggering channel-based import for {provider_name}")
+            Thread(
+                target=self._run_channel_import_fallback,
+                args=(provider_name,),
+                daemon=True,
+            ).start()
+        else:
+            logger.info("Manually triggering Ultimate Backend incremental import (all providers)")
+            Thread(target=self._run_ultimate_incremental_job, daemon=True).start()
 
     def trigger_ultimate_full_now(self):
         """

@@ -24,12 +24,25 @@ ultimate_backend:
     name: "main"
     base_url: "http://your-ultimate-backend:7777"
     api_key: "your-api-key-if-needed"
+  # Channel-based import — used only as a fallback when /epg/grid returns
+  # empty for a provider, or for manual single-provider refreshes via API.
   import:
     future_days: 3
     past_days: 7
     chunk_hours: 24
     max_requests_per_second: 5
     max_concurrent_channels: 3
+    api_max_future_days: 3
+  # Grid import is the primary EPG data source (scheduled daily at 1 AM Vienna).
+  grid_import:
+    chunk_hours: 3      # Must align with backend cache boundaries (0,3,6,9,…)
+    days_ahead: 7
+  # Detail enrichment fills in description/cast/crew for grid-imported programs
+  # (scheduled daily at 4 AM Vienna, after grid import completes).
+  detail_enrichment:
+    max_days: 7         # Enrich programs up to this many days ahead
+    max_attempts: 3     # Give up after this many failed fetches per program
+    batch_limit: 5000   # Max programs per enrichment run
   discovery:
     enabled: true
     day: 6  # Sunday
