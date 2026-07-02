@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Prioritize import" />
+    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="New endpoints">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/api/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/admin.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -41,23 +44,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0004370462913128" />
-      <entry key="MS500" value="1.2615492793690777" />
-      <entry key="S2" value="3.374429392382366" />
-      <entry key="S5" value="6.664184245836374" />
-      <entry key="S10" value="9.307331879893765" />
-      <entry key="S30" value="12.109753332679029" />
-      <entry key="S60" value="13.006091519490544" />
-      <entry key="M2" value="13.556025104616767" />
-      <entry key="M5" value="14.969142402271073" />
-      <entry key="M10" value="16.963681913567896" />
-      <entry key="M15" value="18.153107707139952" />
-      <entry key="M30" value="19.777339653541173" />
-      <entry key="H1" value="20.801469729316484" />
-      <entry key="H2" value="21.377160158666197" />
-      <entry key="H4" value="21.682448756793832" />
-      <entry key="D1" value="21.94620226791557" />
-      <entry key="W1" value="21.992292963103687" />
+      <entry key="MS100" value="1.0026680652202966" />
+      <entry key="MS500" value="1.3338632171562181" />
+      <entry key="S2" value="2.153351445880085" />
+      <entry key="S5" value="2.588116747264335" />
+      <entry key="S10" value="2.779052105655265" />
+      <entry key="S30" value="2.9227010408688106" />
+      <entry key="S60" value="2.960873024814891" />
+      <entry key="M2" value="2.9803154775783205" />
+      <entry key="M5" value="2.992096927286466" />
+      <entry key="M10" value="2.9960435682861455" />
+      <entry key="M15" value="2.997361289657845" />
+      <entry key="M30" value="2.9986801054541594" />
+      <entry key="H1" value="2.9997192040205856" />
+      <entry key="H2" value="3.0989105732063527" />
+      <entry key="H4" value="4.605886805967282" />
+      <entry key="D1" value="19.346579903478812" />
+      <entry key="W1" value="27.3321667780461" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -79,23 +82,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9079383981403051" />
-      <entry key="MS500" value="1.239598515071194" />
-      <entry key="S2" value="3.3359521778440135" />
-      <entry key="S5" value="6.6226855185103854" />
-      <entry key="S10" value="9.27753294176318" />
-      <entry key="S30" value="12.096992164464007" />
-      <entry key="S60" value="12.999289533940052" />
-      <entry key="M2" value="13.552502994403872" />
-      <entry key="M5" value="14.967639099907066" />
-      <entry key="M10" value="16.96286853640741" />
-      <entry key="M15" value="18.152541180983103" />
-      <entry key="M30" value="19.77703987699833" />
-      <entry key="H1" value="20.801314645692234" />
-      <entry key="H2" value="21.37708115790639" />
-      <entry key="H4" value="21.682408869728825" />
-      <entry key="D1" value="21.94619556440509" />
-      <entry key="W1" value="21.992292004069835" />
+      <entry key="MS100" value="0.9099913524710059" />
+      <entry key="MS500" value="1.309512777396245" />
+      <entry key="S2" value="2.143839731202012" />
+      <entry key="S5" value="2.5835641777013594" />
+      <entry key="S10" value="2.776610347677136" />
+      <entry key="S30" value="2.921845494817811" />
+      <entry key="S60" value="2.9604397126910036" />
+      <entry key="M2" value="2.9800974102432756" />
+      <entry key="M5" value="2.9920093581975746" />
+      <entry key="M10" value="2.9959997264260134" />
+      <entry key="M15" value="2.9973320489927113" />
+      <entry key="M30" value="2.99866547873693" />
+      <entry key="H1" value="2.9997118865314136" />
+      <entry key="H2" value="3.0989065856939266" />
+      <entry key="H4" value="4.605882317088681" />
+      <entry key="D1" value="19.346575097310307" />
+      <entry key="W1" value="27.33216577770691" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -189,14 +192,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00034" summary="Read EPG from backend">
-      <option name="closed" value="true" />
-      <created>1775459036022</created>
-      <option name="number" value="00034" />
-      <option name="presentableId" value="LOCAL-00034" />
-      <option name="project" value="LOCAL" />
-      <updated>1775459036022</updated>
     </task>
     <task id="LOCAL-00035" summary="Read EPG from backend">
       <option name="closed" value="true" />
@@ -582,7 +577,15 @@
       <option name="project" value="LOCAL" />
       <updated>1782930993612</updated>
     </task>
-    <option name="localTasksCounter" value="83" />
+    <task id="LOCAL-00083" summary="New endpoints">
+      <option name="closed" value="true" />
+      <created>1782988576983</created>
+      <option name="number" value="00083" />
+      <option name="presentableId" value="LOCAL-00083" />
+      <option name="project" value="LOCAL" />
+      <updated>1782988576983</updated>
+    </task>
+    <option name="localTasksCounter" value="84" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -601,7 +604,8 @@
     <MESSAGE value="Add endpoints to trigger provider import" />
     <MESSAGE value="Update to v8" />
     <MESSAGE value="Prioritize import" />
-    <option name="LAST_COMMIT_MESSAGE" value="Prioritize import" />
+    <MESSAGE value="New endpoints" />
+    <option name="LAST_COMMIT_MESSAGE" value="New endpoints" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/webepg$main.coverage" NAME="main Coverage Results" MODIFIED="1766784290681" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

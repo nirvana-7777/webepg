@@ -320,6 +320,9 @@ def get_provider_statistics():
     """
     Get detailed per-provider statistics including program counts,
     date ranges, and enrichment coverage.
+
+    This uses a more complex query that works with both XMLTV providers
+    (via channel_mappings) and Ultimate Backend providers (via ultimate_channel_mappings).
     """
     try:
         from ..database.connection import get_db
@@ -335,8 +338,61 @@ def get_provider_statistics():
         }
 
         for provider in providers:
-            # Get provider-level stats - FIX: join on provider_id too
-            row = db.fetchone("""
+            # For XMLTV providers, channels are linked via channel_mappings
+            # For Ultimate Backend providers, channels are linked via ultimate_channel_mappings
+            # We need to use a UNION to get channels from both sources
+
+            # First, get all channel IDs for this provider via channel_mappings
+            # (for XMLTV providers) and via ultimate_channel_mappings (for Ultimate providers)
+            channel_ids_query = """
+                SELECT channel_id FROM channel_mappings WHERE provider_id = ?
+                UNION
+                SELECT ucm.channel_id 
+                FROM ultimate_channel_mappings ucm
+                JOIN ultimate_channels uc ON uc.id = ucm.ultimate_channel_id
+                JOIN ultimate_providers up ON up.id = uc.ultimate_provider_id
+                WHERE up.provider_name = (
+                    SELECT name FROM providers WHERE id = ?
+                )
+            """
+
+            channel_rows = db.fetchall(channel_ids_query, (provider.id, provider.id))
+            channel_ids = [row[0] for row in channel_rows] if channel_rows else []
+
+            if not channel_ids:
+                # Provider has no channels mapped yet
+                result["providers"].append({
+                    "provider_id": provider.id,
+                    "name": provider.name,
+                    "display_name": provider.display_name,
+                    "source_type": provider.source_type,
+                    "enabled": provider.enabled,
+                    "channels": 0,
+                    "programs": 0,
+                    "days_covered": 0,
+                    "date_range": None,
+                    "enrichment": {
+                        "with_description": 0,
+                        "with_actors": 0,
+                        "with_directors": 0,
+                        "with_category": 0,
+                        "with_rating": 0,
+                        "with_ultimate_epg_id": 0,
+                        "description_percent": 0.0,
+                        "actors_percent": 0.0,
+                        "directors_percent": 0.0,
+                        "category_percent": 0.0,
+                        "rating_percent": 0.0,
+                    },
+                    "last_import": None,
+                })
+                continue
+
+            # Build placeholders for channel IDs
+            placeholders = ",".join(["?"] * len(channel_ids))
+
+            # Get provider-level stats from programs
+            row = db.fetchone(f"""
                 SELECT 
                     COUNT(DISTINCT c.id) as channel_count,
                     COUNT(DISTINCT p.id) as program_count,
@@ -345,18 +401,17 @@ def get_provider_statistics():
                     COUNT(DISTINCT DATE(p.start_time)) as days_covered,
                     -- Enrichment stats (programs with description, cast, etc.)
                     COUNT(CASE WHEN p.description IS NOT NULL AND p.description != '' THEN 1 END) as with_description,
-                    COUNT(CASE WHEN p.actors IS NOT NULL AND p.actors != '[]' THEN 1 END) as with_actors,
-                    COUNT(CASE WHEN p.directors IS NOT NULL AND p.directors != '[]' THEN 1 END) as with_directors,
+                    COUNT(CASE WHEN p.actors IS NOT NULL AND p.actors != '[]' AND p.actors != '[""]' THEN 1 END) as with_actors,
+                    COUNT(CASE WHEN p.directors IS NOT NULL AND p.directors != '[]' AND p.directors != '[""]' THEN 1 END) as with_directors,
                     COUNT(CASE WHEN p.category IS NOT NULL AND p.category != '' THEN 1 END) as with_category,
                     COUNT(CASE WHEN p.rating IS NOT NULL AND p.rating != '' THEN 1 END) as with_rating,
                     COUNT(CASE WHEN p.ultimate_epg_id IS NOT NULL THEN 1 END) as with_ultimate_epg_id
-                FROM providers pr
-                LEFT JOIN channels c ON c.provider_id = pr.id
-                LEFT JOIN programs p ON p.channel_id = c.id AND p.provider_id = pr.id
-                WHERE pr.id = ?
-            """, (provider.id,))
+                FROM channels c
+                LEFT JOIN programs p ON p.channel_id = c.id
+                WHERE c.id IN ({placeholders})
+            """, tuple(channel_ids))
 
-            if row and row[0] is not None:  # provider has channels
+            if row:
                 channel_count = row[0] or 0
                 program_count = row[1] or 0
 
@@ -413,7 +468,6 @@ def get_provider_statistics():
                     } if import_row else None,
                 }
             else:
-                # Provider has no channels or programs yet
                 provider_stats = {
                     "provider_id": provider.id,
                     "name": provider.name,
@@ -493,7 +547,6 @@ def trigger_cleanup():
 
         # Run retention cleanup
         if past_only:
-            # FIX: Use timezone-aware datetime and remove unused future_cutoff
             from datetime import datetime, timedelta, timezone
             from ..database.connection import get_db
             now = datetime.now(timezone.utc)
