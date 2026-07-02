@@ -277,45 +277,61 @@ def export_provider_epg_xml_gz(identifier):
     Query params:
         start: Optional start time (ISO format, default: 7 days ago)
         end: Optional end time (ISO format, default: 7 days from now)
-        stream: If true, stream the response (default: true)
-        cache: If true, use cached file if available (default: false)
+        force: If true, force regeneration even if cache exists (default: false)
+        cache_only: If true, only serve from cache, 404 if not found (default: false)
     """
     try:
         epg_service = ServiceRegistry.epg_service
         assert epg_service is not None, "EPG service not initialized"
         from ..parsers.xmltv_serializer import XMLTVSerializer
 
-        # Parse time range parameters
+        # Parse parameters
         start_str = request.args.get("start")
         end_str = request.args.get("end")
-        use_cache = request.args.get("cache", default=False, type=bool)
+        force = request.args.get("force", default=False, type=bool)
+        cache_only = request.args.get("cache_only", default=False, type=bool)
 
         # Get provider
         provider = epg_service.get_provider_by_id_or_name(identifier)
         if not provider:
             return jsonify({"error": f"Provider not found: {identifier}"}), 404
 
-        # Check for cached file if cache is enabled
+        # Setup cache path
         from ..config import load_config
         config = load_config()
         export_dir = config.get("export_dir", "/tmp/epg_exports")
         cache_filename = f"epg_{provider.name.replace(' ', '_')}.xml.gz"
         cache_path = os.path.join(export_dir, cache_filename)
 
-        if use_cache and os.path.exists(cache_path):
-            # Check if cache is fresh (less than 24 hours old)
+        # Check cache freshness
+        cache_valid = False
+        age_hours = 0.0
+        if os.path.exists(cache_path):
             mtime = os.path.getmtime(cache_path)
-            age_hours = (datetime.now().timestamp() - mtime) / 3600
+            age_hours = (datetime.now(timezone.utc).timestamp() - mtime) / 3600
             if age_hours < 24:
-                logger.info(f"Serving cached export for {provider.name} ({age_hours:.1f}h old)")
-                return send_file(
-                    cache_path,
-                    mimetype="application/gzip",
-                    as_attachment=True,
-                    download_name=f"epg_{provider.name.replace(' ', '_')}.xml.gz",
-                )
-            else:
-                logger.info(f"Cache expired for {provider.name} ({age_hours:.1f}h old)")
+                cache_valid = True
+
+        # cache_only: refuse to generate, 404 if nothing usable on disk
+        if cache_only and not cache_valid:
+            logger.warning(f"Cache not found or expired for {provider.name}")
+            return jsonify({
+                "error": "Cache not available",
+                "message": f"No valid cache found for {provider.name}. Use force=true to regenerate.",
+            }), 404
+
+        # Serve from cache unless caller explicitly forces regeneration
+        if cache_valid and not force:
+            logger.info(f"Serving cached export for {provider.name} ({age_hours:.1f}h old)")
+            return send_file(
+                cache_path,
+                mimetype="application/gzip",
+                as_attachment=True,
+                download_name=f"epg_{provider.name.replace(' ', '_')}.xml.gz",
+            )
+
+        # Cache miss or force=true — generate fresh export
+        logger.info(f"Generating new export for {provider.name} (force={force}, cache_valid={cache_valid})")
 
         # Parse time range parameters with defaults
         if start_str:
@@ -359,27 +375,26 @@ def export_provider_epg_xml_gz(identifier):
             source_info_url=provider.xmltv_url if provider.xmltv_url else None,
         )
 
-        # Compress and return
+        # Compress
         import io
-
-        # Create in-memory gzip file
         gz_buffer = io.BytesIO()
         with gzip.GzipFile(fileobj=gz_buffer, mode='wb', compresslevel=6) as gz_file:
             gz_file.write(xml_output.encode('utf-8'))
         gz_buffer.seek(0)
 
-        # Save to cache if cache is enabled
-        if use_cache:
-            try:
-                os.makedirs(export_dir, exist_ok=True)
-                with open(cache_path, 'wb') as f:
-                    f.write(gz_buffer.getvalue())
-                logger.info(f"Cached export for {provider.name} at {cache_path}")
-            except Exception as e:
-                logger.warning(f"Failed to cache export for {provider.name}: {e}")
+        # Always persist to cache so next request is served instantly
+        try:
+            os.makedirs(export_dir, exist_ok=True)
+            with open(cache_path, 'wb') as f:
+                f.write(gz_buffer.getvalue())
+            logger.info(f"Updated cache for {provider.name} at {cache_path}")
+        except Exception as e:
+            logger.warning(f"Failed to cache export for {provider.name}: {e}")
 
-        # Return compressed response
-        filename = f"epg_{provider.name.replace(' ', '_')}_{start_time.strftime('%Y%m%d')}_{end_time.strftime('%Y%m%d')}.xml.gz"
+        filename = (
+            f"epg_{provider.name.replace(' ', '_')}"
+            f"_{start_time.strftime('%Y%m%d')}_{end_time.strftime('%Y%m%d')}.xml.gz"
+        )
 
         return Response(
             gz_buffer.getvalue(),
