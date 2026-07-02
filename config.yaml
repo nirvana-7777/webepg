@@ -14,6 +14,10 @@ scheduler:
   import_time: "03:00"
   timezone: "UTC"
 
+# New: Export settings
+export_dir: "/tmp/epg_exports"  # Directory for cached exports
+export_epg_nightly: true        # Enable nightly export generation
+
 logging:
   level: "INFO"
   format: "text"  # 'text' or 'json'

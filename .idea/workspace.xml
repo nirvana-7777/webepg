@@ -4,12 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Update to v8">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/config.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/scheduler/jobs.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/scheduler/jobs.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_import_service.py" afterDir="false" />
-    </list>
+    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Prioritize import" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -194,14 +189,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00033" summary="Read EPG from backend">
-      <option name="closed" value="true" />
-      <created>1775458391473</created>
-      <option name="number" value="00033" />
-      <option name="presentableId" value="LOCAL-00033" />
-      <option name="project" value="LOCAL" />
-      <updated>1775458391473</updated>
     </task>
     <task id="LOCAL-00034" summary="Read EPG from backend">
       <option name="closed" value="true" />
@@ -587,7 +574,15 @@
       <option name="project" value="LOCAL" />
       <updated>1782735374921</updated>
     </task>
-    <option name="localTasksCounter" value="82" />
+    <task id="LOCAL-00082" summary="Prioritize import">
+      <option name="closed" value="true" />
+      <created>1782930993612</created>
+      <option name="number" value="00082" />
+      <option name="presentableId" value="LOCAL-00082" />
+      <option name="project" value="LOCAL" />
+      <updated>1782930993612</updated>
+    </task>
+    <option name="localTasksCounter" value="83" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -605,7 +600,8 @@
     <MESSAGE value="Add grid EPG" />
     <MESSAGE value="Add endpoints to trigger provider import" />
     <MESSAGE value="Update to v8" />
-    <option name="LAST_COMMIT_MESSAGE" value="Update to v8" />
+    <MESSAGE value="Prioritize import" />
+    <option name="LAST_COMMIT_MESSAGE" value="Prioritize import" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/webepg$main.coverage" NAME="main Coverage Results" MODIFIED="1766784290681" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

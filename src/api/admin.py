@@ -313,3 +313,261 @@ def get_statistics():
     except Exception as e:
         logger.error(f"Error getting statistics: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@admin_bp.route("/statistics/providers", methods=["GET"])
+def get_provider_statistics():
+    """
+    Get detailed per-provider statistics including program counts,
+    date ranges, and enrichment coverage.
+    """
+    try:
+        from ..database.connection import get_db
+        from ..services.provider_service import ProviderService
+
+        db = get_db()
+        provider_service = ProviderService()
+        providers = provider_service.list_providers()
+
+        result = {
+            "total_providers": len(providers),
+            "providers": []
+        }
+
+        for provider in providers:
+            # Get provider-level stats - FIX: join on provider_id too
+            row = db.fetchone("""
+                SELECT 
+                    COUNT(DISTINCT c.id) as channel_count,
+                    COUNT(DISTINCT p.id) as program_count,
+                    MIN(p.start_time) as earliest_program,
+                    MAX(p.start_time) as latest_program,
+                    COUNT(DISTINCT DATE(p.start_time)) as days_covered,
+                    -- Enrichment stats (programs with description, cast, etc.)
+                    COUNT(CASE WHEN p.description IS NOT NULL AND p.description != '' THEN 1 END) as with_description,
+                    COUNT(CASE WHEN p.actors IS NOT NULL AND p.actors != '[]' THEN 1 END) as with_actors,
+                    COUNT(CASE WHEN p.directors IS NOT NULL AND p.directors != '[]' THEN 1 END) as with_directors,
+                    COUNT(CASE WHEN p.category IS NOT NULL AND p.category != '' THEN 1 END) as with_category,
+                    COUNT(CASE WHEN p.rating IS NOT NULL AND p.rating != '' THEN 1 END) as with_rating,
+                    COUNT(CASE WHEN p.ultimate_epg_id IS NOT NULL THEN 1 END) as with_ultimate_epg_id
+                FROM providers pr
+                LEFT JOIN channels c ON c.provider_id = pr.id
+                LEFT JOIN programs p ON p.channel_id = c.id AND p.provider_id = pr.id
+                WHERE pr.id = ?
+            """, (provider.id,))
+
+            if row and row[0] is not None:  # provider has channels
+                channel_count = row[0] or 0
+                program_count = row[1] or 0
+
+                # Calculate enrichment percentages
+                enrichment = {
+                    "with_description": row[5] or 0,
+                    "with_actors": row[6] or 0,
+                    "with_directors": row[7] or 0,
+                    "with_category": row[8] or 0,
+                    "with_rating": row[9] or 0,
+                    "with_ultimate_epg_id": row[10] or 0,
+                }
+
+                if program_count > 0:
+                    enrichment["description_percent"] = round((enrichment["with_description"] / program_count) * 100, 1)
+                    enrichment["actors_percent"] = round((enrichment["with_actors"] / program_count) * 100, 1)
+                    enrichment["directors_percent"] = round((enrichment["with_directors"] / program_count) * 100, 1)
+                    enrichment["category_percent"] = round((enrichment["with_category"] / program_count) * 100, 1)
+                    enrichment["rating_percent"] = round((enrichment["with_rating"] / program_count) * 100, 1)
+                else:
+                    enrichment["description_percent"] = 0.0
+                    enrichment["actors_percent"] = 0.0
+                    enrichment["directors_percent"] = 0.0
+                    enrichment["category_percent"] = 0.0
+                    enrichment["rating_percent"] = 0.0
+
+                # Get last import status
+                import_row = db.fetchone("""
+                    SELECT status, completed_at, programs_imported
+                    FROM import_log
+                    WHERE provider_id = ?
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                """, (provider.id,))
+
+                provider_stats = {
+                    "provider_id": provider.id,
+                    "name": provider.name,
+                    "display_name": provider.display_name,
+                    "source_type": provider.source_type,
+                    "enabled": provider.enabled,
+                    "channels": channel_count,
+                    "programs": program_count,
+                    "days_covered": row[4] or 0,
+                    "date_range": {
+                        "earliest": row[2],
+                        "latest": row[3],
+                    } if row[2] and row[3] else None,
+                    "enrichment": enrichment,
+                    "last_import": {
+                        "status": import_row[0] if import_row else None,
+                        "completed_at": import_row[1] if import_row else None,
+                        "programs_imported": import_row[2] if import_row else 0,
+                    } if import_row else None,
+                }
+            else:
+                # Provider has no channels or programs yet
+                provider_stats = {
+                    "provider_id": provider.id,
+                    "name": provider.name,
+                    "display_name": provider.display_name,
+                    "source_type": provider.source_type,
+                    "enabled": provider.enabled,
+                    "channels": 0,
+                    "programs": 0,
+                    "days_covered": 0,
+                    "date_range": None,
+                    "enrichment": {
+                        "with_description": 0,
+                        "with_actors": 0,
+                        "with_directors": 0,
+                        "with_category": 0,
+                        "with_rating": 0,
+                        "with_ultimate_epg_id": 0,
+                        "description_percent": 0.0,
+                        "actors_percent": 0.0,
+                        "directors_percent": 0.0,
+                        "category_percent": 0.0,
+                        "rating_percent": 0.0,
+                    },
+                    "last_import": None,
+                }
+
+            result["providers"].append(provider_stats)
+
+        # Add summary statistics
+        total_programs = sum(p["programs"] for p in result["providers"])
+        total_with_description = sum(p["enrichment"]["with_description"] for p in result["providers"])
+
+        result["summary"] = {
+            "total_programs": total_programs,
+            "total_channels": sum(p["channels"] for p in result["providers"]),
+            "programs_with_description": total_with_description,
+            "description_coverage_percent": round((total_with_description / total_programs) * 100, 1) if total_programs > 0 else 0.0,
+        }
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error getting provider statistics: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@admin_bp.route("/admin/cleanup", methods=["POST"])
+def trigger_cleanup():
+    """
+    Manually trigger cleanup of old programs and deduplication.
+
+    Query params:
+        retention_days: int - Number of days to keep (default from config)
+        deduplicate: bool - Whether to run deduplication (default: True)
+        past_only: bool - Only clean past data, don't limit future (default: False)
+    """
+    try:
+        from ..services.cleanup_service import CleanupService
+        from ..config import load_config
+
+        # Get parameters
+        retention_days = request.args.get("retention_days", type=int)
+        deduplicate = request.args.get("deduplicate", default=True, type=bool)
+        past_only = request.args.get("past_only", default=False, type=bool)
+
+        # Load config for default retention
+        if retention_days is None:
+            config = load_config()
+            retention_days = config.get("retention", {}).get("days", 7)
+
+        cleanup_service = CleanupService()
+        results = {
+            "retention_days": retention_days,
+            "past_only": past_only,
+            "deduplicate": deduplicate,
+        }
+
+        # Run retention cleanup
+        if past_only:
+            # FIX: Use timezone-aware datetime and remove unused future_cutoff
+            from datetime import datetime, timedelta, timezone
+            from ..database.connection import get_db
+            now = datetime.now(timezone.utc)
+            past_cutoff = now - timedelta(days=retention_days)
+
+            db = get_db()
+            sql = "DELETE FROM programs WHERE start_time < ?"
+            with db.get_cursor() as cursor:
+                cursor.execute(sql, (past_cutoff.isoformat(),))
+                deleted_count = cursor.rowcount
+            results["programs_deleted"] = deleted_count
+            logger.info(f"Past-only cleanup deleted {deleted_count} programs older than {retention_days} days")
+        else:
+            # Normal cleanup (keeps past AND future window)
+            deleted_count = cleanup_service.cleanup_old_programs(retention_days)
+            results["programs_deleted"] = deleted_count
+
+        # Run deduplication if requested
+        dedup_stats = None
+        if deduplicate:
+            dedup_stats = cleanup_service.deduplicate_programs()
+            results["deduplication"] = dedup_stats
+
+        # Get database stats after cleanup
+        stats = cleanup_service.get_database_stats()
+        results["database_after"] = stats
+
+        return jsonify({
+            "success": True,
+            "message": "Cleanup completed successfully",
+            "results": results,
+        })
+
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@admin_bp.route("/admin/cleanup/status", methods=["GET"])
+def get_cleanup_status():
+    """Get current cleanup status and database health."""
+    try:
+        from ..services.cleanup_service import CleanupService
+        import os
+
+        cleanup_service = CleanupService()
+        stats = cleanup_service.get_database_stats()
+
+        # Get database file size
+        from ..database.connection import get_db
+        db = get_db()
+        try:
+            size_bytes = os.path.getsize(db.db_path)
+            size_mb = round(size_bytes / (1024 * 1024), 2)
+            size_gb = round(size_bytes / (1024 * 1024 * 1024), 2)
+        except Exception:
+            size_mb = 0
+            size_gb = 0
+
+        # Check for potential issues
+        warnings = []
+        if stats.get("total_programs", 0) > 500000:
+            warnings.append("Database has >500k programs - consider running cleanup")
+        if size_mb > 500:
+            warnings.append(f"Database is {size_mb}MB - consider VACUUM or archiving")
+
+        return jsonify({
+            "database_stats": stats,
+            "database_size_mb": size_mb,
+            "database_size_gb": size_gb,
+            "warnings": warnings,
+            "status": "healthy" if not warnings else "needs_attention",
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting cleanup status: {e}")
+        return jsonify({"error": str(e)}), 500

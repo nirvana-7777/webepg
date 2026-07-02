@@ -124,6 +124,18 @@ class JobScheduler:
         except Exception as e:
             logger.error(f"Cleanup job failed: {e}", exc_info=True)
 
+    def _run_deduplication_job(self):
+        """Run deduplication to remove fuzzy duplicates."""
+        logger.info("Starting scheduled deduplication job")
+        try:
+            stats = self.cleanup_service.deduplicate_programs()
+            logger.info(
+                f"Deduplication completed: {stats.get('duplicates_removed', 0)} duplicates removed "
+                f"from {stats.get('duplicate_groups', 0)} groups"
+            )
+        except Exception as e:
+            logger.error(f"Deduplication job failed: {e}", exc_info=True)
+
     # ------------------------------------------------------------------
     # Ultimate Backend jobs
     # ------------------------------------------------------------------
@@ -185,6 +197,8 @@ class JobScheduler:
             )
             loop.close()
             logger.info(f"Full import completed: {stats}")
+            # Run deduplication after full import
+            self._run_deduplication_job()
         except Exception as e:
             logger.error(f"Full import job failed: {e}", exc_info=True)
 
@@ -208,6 +222,8 @@ class JobScheduler:
             stats = loop.run_until_complete(self.grid_import_service.grid_import_all())
             loop.close()
             logger.info(f"Grid import completed: {stats}")
+            # Cleanup after grid import
+            self._run_cleanup_job()
         except Exception as e:
             logger.error(f"Grid import job failed: {e}", exc_info=True)
             return
@@ -279,6 +295,82 @@ class JobScheduler:
         except Exception as e:
             logger.error(f"Detail enrichment job failed: {e}", exc_info=True)
 
+    def _run_epg_export_job(self):
+        """
+        Generate compressed EPG exports for all providers nightly.
+        """
+        from ..services.epg_service import EPGService
+        from ..services.provider_service import ProviderService
+        import gzip
+        import os
+
+        logger.info("Starting nightly EPG export generation")
+        epg_service = EPGService()
+        provider_service = ProviderService()
+
+        # Ensure export directory exists
+        export_dir = self.config.get("export_dir", "/tmp/epg_exports")
+        os.makedirs(export_dir, exist_ok=True)
+
+        providers = provider_service.list_providers(enabled_only=True)
+        results = []
+
+        for provider in providers:
+            try:
+                logger.info(f"Generating export for provider: {provider.name}")
+
+                # Get channels and programs
+                channels, programs = epg_service.get_provider_programs_for_export(
+                    provider_id=provider.id,
+                    start_time=None,  # Use defaults (7 days past)
+                    end_time=None,    # Use defaults (7 days future)
+                )
+
+                if not channels:
+                    logger.warning(f"No channels for provider {provider.name}, skipping")
+                    continue
+
+                # Serialize to XML
+                from ..parsers.xmltv_serializer import XMLTVSerializer
+                serializer = XMLTVSerializer()
+
+                xml_output = serializer.serialize_tv(
+                    channels=channels,
+                    programs=programs,
+                    generator_info_name="EPG Service/1.0.0",
+                    generator_info_url="https://github.com/your-repo/epg-service",
+                    source_info_name=provider.name,
+                    source_info_url=provider.xmltv_url if provider.xmltv_url else None,
+                )
+
+                # Write compressed file
+                filename = f"epg_{provider.name.replace(' ', '_')}.xml.gz"
+                filepath = os.path.join(export_dir, filename)
+
+                with gzip.open(filepath, 'wt', encoding='utf-8') as f:
+                    f.write(xml_output)
+
+                size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                logger.info(f"Exported {provider.name}: {len(programs)} programs, {size_mb:.2f} MB")
+
+                results.append({
+                    "provider": provider.name,
+                    "programs": len(programs),
+                    "channels": len(channels),
+                    "size_mb": round(size_mb, 2),
+                    "filepath": filepath,
+                })
+
+            except Exception as e:
+                logger.error(f"Failed to export {provider.name}: {e}", exc_info=True)
+                results.append({
+                    "provider": provider.name,
+                    "error": str(e),
+                })
+
+        logger.info(f"Nightly EPG export completed: {len(results)} providers processed")
+        return results
+
     # ------------------------------------------------------------------
     # Scheduler lifecycle
     # ------------------------------------------------------------------
@@ -297,6 +389,27 @@ class JobScheduler:
             replace_existing=True,
         )
         logger.info(f"Scheduled daily XMLTV import at {import_time}")
+
+        # Weekly deduplication (Sunday at 5:00 AM - after cleanup)
+        self.scheduler.add_job(
+            self._run_deduplication_job,
+            trigger=CronTrigger(day_of_week=6, hour=5, minute=0),
+            id="weekly_deduplication",
+            name="Weekly Deduplication",
+            replace_existing=True,
+        )
+        logger.info("Scheduled weekly deduplication on Sunday at 5:00 AM")
+
+        # Nightly EPG export generation (2 AM daily)
+        if self.config.get("export_epg_nightly", True):
+            self.scheduler.add_job(
+                self._run_epg_export_job,
+                trigger=CronTrigger(hour=2, minute=0),
+                id="nightly_epg_export",
+                name="Nightly EPG Export",
+                replace_existing=True,
+            )
+            logger.info("Scheduled nightly EPG export at 2:00 AM")
 
         if self.ultimate_enabled:
             ub_config = self.config.get("ultimate_backend", {})
@@ -373,6 +486,31 @@ class JobScheduler:
             name="Manual XMLTV Import",
             replace_existing=True,
         )
+
+    def trigger_cleanup_now(self, retention_days: int = None, deduplicate: bool = True):
+        """
+        Immediately run cleanup outside the daily schedule.
+
+        Args:
+            retention_days: Days to keep (default from config)
+            deduplicate: Whether to run deduplication
+        """
+        logger.info("Manually triggering cleanup")
+        from ..services.cleanup_service import CleanupService
+
+        if retention_days is None:
+            retention_days = self.config.get("retention_days", 7)
+
+        service = CleanupService()
+        deleted = service.cleanup_old_programs(retention_days)
+        logger.info(f"Manual cleanup deleted {deleted} programs")
+
+        dedup_stats = None
+        if deduplicate:
+            dedup_stats = service.deduplicate_programs()
+            logger.info(f"Manual deduplication removed {dedup_stats.get('duplicates_removed', 0)} duplicates")
+
+        return {"programs_deleted": deleted, "deduplication": dedup_stats}
 
     def trigger_ultimate_incremental_now(self, provider_name: Optional[str] = None):
         """

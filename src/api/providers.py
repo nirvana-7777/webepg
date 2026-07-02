@@ -3,8 +3,10 @@ Standard XMLTV provider endpoints.
 """
 
 import logging
+import gzip
+import os
 from datetime import datetime, timezone, timedelta
-from flask import Blueprint, jsonify, request, Response
+from flask import Blueprint, jsonify, request, Response, send_file
 from dateutil.parser import isoparse
 
 from . import ServiceRegistry
@@ -261,6 +263,135 @@ def export_provider_epg_xml(identifier):
 
     except Exception as e:
         logger.error(f"Error exporting XMLTV for provider {identifier}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@providers_bp.route("/providers/<identifier>/epg.xml.gz", methods=["GET"])
+def export_provider_epg_xml_gz(identifier):
+    """
+    Export EPG data for a provider as compressed XMLTV (.xml.gz).
+
+    Args:
+        identifier: Provider ID or name
+
+    Query params:
+        start: Optional start time (ISO format, default: 7 days ago)
+        end: Optional end time (ISO format, default: 7 days from now)
+        stream: If true, stream the response (default: true)
+        cache: If true, use cached file if available (default: false)
+    """
+    try:
+        epg_service = ServiceRegistry.epg_service
+        assert epg_service is not None, "EPG service not initialized"
+        from ..parsers.xmltv_serializer import XMLTVSerializer
+
+        # Parse time range parameters
+        start_str = request.args.get("start")
+        end_str = request.args.get("end")
+        use_cache = request.args.get("cache", default=False, type=bool)
+
+        # Get provider
+        provider = epg_service.get_provider_by_id_or_name(identifier)
+        if not provider:
+            return jsonify({"error": f"Provider not found: {identifier}"}), 404
+
+        # Check for cached file if cache is enabled
+        from ..config import load_config
+        config = load_config()
+        export_dir = config.get("export_dir", "/tmp/epg_exports")
+        cache_filename = f"epg_{provider.name.replace(' ', '_')}.xml.gz"
+        cache_path = os.path.join(export_dir, cache_filename)
+
+        if use_cache and os.path.exists(cache_path):
+            # Check if cache is fresh (less than 24 hours old)
+            mtime = os.path.getmtime(cache_path)
+            age_hours = (datetime.now().timestamp() - mtime) / 3600
+            if age_hours < 24:
+                logger.info(f"Serving cached export for {provider.name} ({age_hours:.1f}h old)")
+                return send_file(
+                    cache_path,
+                    mimetype="application/gzip",
+                    as_attachment=True,
+                    download_name=f"epg_{provider.name.replace(' ', '_')}.xml.gz",
+                )
+            else:
+                logger.info(f"Cache expired for {provider.name} ({age_hours:.1f}h old)")
+
+        # Parse time range parameters with defaults
+        if start_str:
+            try:
+                start_time = isoparse(start_str)
+            except ValueError as e:
+                return jsonify({"error": f"Invalid start datetime: {e}"}), 400
+        else:
+            start_time = datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) - timedelta(days=7)
+
+        if end_str:
+            try:
+                end_time = isoparse(end_str)
+            except ValueError as e:
+                return jsonify({"error": f"Invalid end datetime: {e}"}), 400
+        else:
+            end_time = datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) + timedelta(days=7)
+
+        # Get channels and programs
+        channels, programs = epg_service.get_provider_programs_for_export(
+            provider_id=provider.id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        if not channels:
+            return jsonify({"error": "No channels found for provider"}), 404
+
+        # Serialize to XMLTV
+        serializer = XMLTVSerializer()
+        xml_output = serializer.serialize_tv(
+            channels=channels,
+            programs=programs,
+            generator_info_name="EPG Service/1.0.0",
+            generator_info_url="https://github.com/your-repo/epg-service",
+            source_info_name=provider.name,
+            source_info_url=provider.xmltv_url if provider.xmltv_url else None,
+        )
+
+        # Compress and return
+        import io
+
+        # Create in-memory gzip file
+        gz_buffer = io.BytesIO()
+        with gzip.GzipFile(fileobj=gz_buffer, mode='wb', compresslevel=6) as gz_file:
+            gz_file.write(xml_output.encode('utf-8'))
+        gz_buffer.seek(0)
+
+        # Save to cache if cache is enabled
+        if use_cache:
+            try:
+                os.makedirs(export_dir, exist_ok=True)
+                with open(cache_path, 'wb') as f:
+                    f.write(gz_buffer.getvalue())
+                logger.info(f"Cached export for {provider.name} at {cache_path}")
+            except Exception as e:
+                logger.warning(f"Failed to cache export for {provider.name}: {e}")
+
+        # Return compressed response
+        filename = f"epg_{provider.name.replace(' ', '_')}_{start_time.strftime('%Y%m%d')}_{end_time.strftime('%Y%m%d')}.xml.gz"
+
+        return Response(
+            gz_buffer.getvalue(),
+            mimetype="application/gzip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Error exporting compressed XMLTV for provider {identifier}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
