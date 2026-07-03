@@ -14,22 +14,22 @@ scheduler:
   import_time: "03:00"
   timezone: "UTC"
 
-# New: Export settings
-export_dir: "/tmp/epg_exports"  # Directory for cached exports
-export_epg_nightly: true        # Enable nightly export generation
+# Export settings - nested to match config.py and jobs.py
+export:
+  enabled: true
+  time: "05:00"
+  dir: "/tmp/epg_exports"
 
 logging:
   level: "INFO"
-  format: "text"  # 'text' or 'json'
+  format: "text"
 
 ultimate_backend:
-  enabled: true  # Set to true to enable
+  enabled: true
   instance:
     name: "main"
     base_url: "http://your-ultimate-backend:7777"
     api_key: "your-api-key-if-needed"
-  # Channel-based import — used only as a fallback when /epg/grid returns
-  # empty for a provider, or for manual single-provider refreshes via API.
   import:
     future_days: 3
     past_days: 7
@@ -37,17 +37,14 @@ ultimate_backend:
     max_requests_per_second: 5
     max_concurrent_channels: 3
     api_max_future_days: 3
-  # Grid import is the primary EPG data source (scheduled daily at 1 AM Vienna).
   grid_import:
-    chunk_hours: 3      # Must align with backend cache boundaries (0,3,6,9,…)
+    chunk_hours: 3
     days_ahead: 7
-  # Detail enrichment fills in description/cast/crew for grid-imported programs
-  # (scheduled daily at 4 AM Vienna, after grid import completes).
   detail_enrichment:
-    max_days: 7         # Enrich programs up to this many days ahead
-    max_attempts: 3     # Give up after this many failed fetches per program
-    batch_limit: 5000   # Max programs per enrichment run
+    max_days: 7
+    max_attempts: 3
+    batch_limit: 5000
   discovery:
     enabled: true
-    day: 6  # Sunday
+    day: 6
     hour: 2

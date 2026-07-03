@@ -308,8 +308,9 @@ class JobScheduler:
         epg_service = EPGService()
         provider_service = ProviderService()
 
-        # Ensure export directory exists
-        export_dir = self.config.get("export_dir", "/tmp/epg_exports")
+        # Read from nested export config
+        export_config = self.config.get("export", {})
+        export_dir = export_config.get("dir", "/tmp/epg_exports")
         os.makedirs(export_dir, exist_ok=True)
 
         providers = provider_service.list_providers(enabled_only=True)
@@ -400,16 +401,20 @@ class JobScheduler:
         )
         logger.info("Scheduled weekly deduplication on Sunday at 5:00 AM")
 
-        # Nightly EPG export generation (2 AM daily)
-        if self.config.get("export_epg_nightly", True):
+        # Nightly EPG export generation - READ FROM NESTED CONFIG
+        export_config = self.config.get("export", {})
+        if export_config.get("enabled", True):
+            export_time = export_config.get("time", "05:00")
+            hour, minute = map(int, export_time.split(":"))
+
             self.scheduler.add_job(
                 self._run_epg_export_job,
-                trigger=CronTrigger(hour=2, minute=0),
+                trigger=CronTrigger(hour=hour, minute=minute),
                 id="nightly_epg_export",
                 name="Nightly EPG Export",
                 replace_existing=True,
             )
-            logger.info("Scheduled nightly EPG export at 2:00 AM")
+            logger.info(f"Scheduled nightly EPG export at {export_time}")
 
         if self.ultimate_enabled:
             ub_config = self.config.get("ultimate_backend", {})

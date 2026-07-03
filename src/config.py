@@ -24,6 +24,11 @@ class Config:
         "retention": {"days": 7},
         "scheduler": {"import_time": "03:00", "timezone": "UTC"},
         "logging": {"level": "INFO", "format": "text"},
+        "export": {
+            "enabled": True,
+            "time": "05:00",  # ← Add this
+            "dir": "/tmp/epg_exports",
+        },
         "ultimate_backend": {
             "enabled": False,
             "instance": {
