@@ -50,6 +50,7 @@ class UltimateBackendDetailEnrichmentService:
                 """
                 UPDATE programs
                 SET description     = ?,
+                    subtitle        = COALESCE(?, subtitle),
                     icon_url        = COALESCE(?, icon_url),
                     actors          = ?,
                     directors       = ?,
@@ -63,6 +64,7 @@ class UltimateBackendDetailEnrichmentService:
                 """,
                 (
                     details.get("description"),
+                    details.get("episode_name"),
                     details.get("icon"),
                     json.dumps(details["cast"]) if details.get("cast") else None,
                     (
