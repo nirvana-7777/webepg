@@ -88,10 +88,23 @@ class JobScheduler:
             days_ahead=grid_config.get("days_ahead", 7),
         )
 
+        # Detail enrichment gets its own client construction (base_url/api_key
+        # only, no shared instance) because it builds one UltimateBackendClient
+        # PER PROVIDER internally — own session, own rate limiter — rather than
+        # sharing self.ultimate_client. This keeps a high-volume or WAF-sensitive
+        # provider (e.g. magentaeu_hr) from throttling every other provider's
+        # discovery/grid/channel-import calls, which all still run at
+        # import_config's requests_per_second (default 5) on self.ultimate_client.
         self.detail_enrichment_service = UltimateBackendDetailEnrichmentService(
-            client=self.ultimate_client,
+            base_url=instance.get("base_url", "http://ultimate:7777"),
+            api_key=instance.get("api_key"),
+            timeout_seconds=import_config.get("timeout_seconds", 30),
+            max_retries=import_config.get("max_retries", 3),
+            requests_per_second=detail_config.get("max_requests_per_second", 0.5),
             max_days=detail_config.get("max_days", 7),
             max_attempts=detail_config.get("max_attempts", 3),
+            run_deadline_hour=detail_config.get("run_deadline_hour", 9),
+            run_deadline_tz=detail_config.get("run_deadline_tz", "Europe/Vienna"),
         )
 
         logger.info("Ultimate Backend integration initialized")
@@ -280,7 +293,13 @@ class JobScheduler:
             )
 
     def _run_detail_enrichment_job(self):
-        """Run detail enrichment for grid-imported Ultimate Backend programs."""
+        """
+        Run detail enrichment for grid-imported Ultimate Backend programs.
+
+        One concurrent task per grid-EPG provider (see
+        UltimateBackendDetailEnrichmentService.enrich_all_providers), each
+        running until its own backlog is empty or the shared deadline hits.
+        """
         if not self.ultimate_enabled or not self.detail_enrichment_service:
             return
         logger.info("Starting Ultimate Backend detail enrichment job")
@@ -288,7 +307,7 @@ class JobScheduler:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             stats = loop.run_until_complete(
-                self.detail_enrichment_service.enrich_programs()
+                self.detail_enrichment_service.enrich_all_providers()
             )
             loop.close()
             logger.info(f"Detail enrichment completed: {stats}")
@@ -402,9 +421,12 @@ class JobScheduler:
         logger.info("Scheduled weekly deduplication on Sunday at 5:00 AM")
 
         # Nightly EPG export generation - READ FROM NESTED CONFIG
+        # Default pushed to 09:00 (was 05:00) so it runs after the detail
+        # enrichment deadline (detail_config.run_deadline_hour, default
+        # 09:00) instead of exporting mid-run with partial descriptions.
         export_config = self.config.get("export", {})
         if export_config.get("enabled", True):
-            export_time = export_config.get("time", "05:00")
+            export_time = export_config.get("time", "09:00")
             hour, minute = map(int, export_time.split(":"))
 
             self.scheduler.add_job(
@@ -438,27 +460,30 @@ class JobScheduler:
                     f"day={discovery_day} at {discovery_hour}:00"
                 )
 
-            # Grid import: 1 AM Vienna time.
+            # Grid import: midnight Vienna time.
             # Channel-based import is NOT scheduled — it runs as a fallback
             # only when grid_import_all() returns empty for a provider.
             self.scheduler.add_job(
                 self._run_grid_import_job,
-                trigger=CronTrigger(hour=1, minute=0, timezone="Europe/Vienna"),
+                trigger=CronTrigger(hour=0, minute=0, timezone="Europe/Vienna"),
                 id="daily_grid_import",
                 name="Ultimate Backend Grid Import",
                 replace_existing=True,
             )
-            logger.info("Scheduled daily grid import at 1:00 AM Vienna time")
+            logger.info("Scheduled daily grid import at midnight Vienna time")
 
-            # Detail enrichment: 4 AM Vienna time (after grid import).
+            # Detail enrichment: 1 AM Vienna time (after grid import).
+            # Runs one task per grid-EPG provider, each until its backlog is
+            # empty or the shared deadline (see detail_config.run_deadline_hour,
+            # default 09:00) is reached.
             self.scheduler.add_job(
                 self._run_detail_enrichment_job,
-                trigger=CronTrigger(hour=4, minute=0, timezone="Europe/Vienna"),
+                trigger=CronTrigger(hour=1, minute=0, timezone="Europe/Vienna"),
                 id="daily_detail_enrichment",
                 name="Ultimate Backend Detail Enrichment",
                 replace_existing=True,
             )
-            logger.info("Scheduled daily detail enrichment at 4:00 AM Vienna time")
+            logger.info("Scheduled daily detail enrichment at 1:00 AM Vienna time")
 
         self.scheduler.start()
         logger.info("Job scheduler started")
