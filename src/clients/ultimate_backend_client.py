@@ -4,6 +4,7 @@ REST client for Ultimate Backend API.
 
 import asyncio
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -50,27 +51,64 @@ class UltimateBackendClient(EPGClient):
         self.max_retries = max_retries
         self.rate_limiter = RateLimiter(requests_per_second)
         self._session: Optional[aiohttp.ClientSession] = None
+        # The loop self._session's connector is bound to. An aiohttp
+        # ClientSession is only safe to use on the event loop it was
+        # created on; this client is shared across callers that each spin
+        # up their own asyncio.new_event_loop() (see jobs.py), so we track
+        # which loop owns the current session and rebuild it if a caller
+        # on a different loop comes in.
+        self._session_loop: Optional[asyncio.AbstractEventLoop] = None
+        # Plain threading.Lock, not asyncio.Lock: callers may be on
+        # different event loops (different threads), and an asyncio.Lock
+        # is itself bound to a single loop, so it can't guard this
+        # check-then-act across all of them. This lock only wraps the
+        # synchronous check/replace below - no awaits happen while held.
+        self._session_lock = threading.Lock()
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """
-        Get or create an aiohttp session.
+        Get or create an aiohttp session for the CURRENT event loop.
 
         Uses force_close=True on the connector so that connections are never
         returned to a keep-alive pool. This prevents stale connections being
         reused when the client is called from a fresh asyncio event loop
         (which happens when APScheduler jobs use asyncio.run()).
+
+        This client instance can be shared across multiple callers that
+        each run on their own event loop (e.g. concurrent daemon threads
+        each doing asyncio.new_event_loop() - see jobs.py's fallback-import
+        fan-out). A ClientSession is only valid on the loop it was created
+        on, so besides the existing None/closed check, we also rebuild the
+        session if it belongs to a different loop than the one we're
+        running on now. We deliberately do NOT await session.close() on the
+        stale session here - it belongs to a foreign loop and closing it
+        from this loop would reintroduce the same cross-loop hazard; it's
+        simply dropped and left for the other loop/thread to finish using
+        or discard.
+
+        The check-and-replace itself is guarded by a plain threading.Lock
+        (not asyncio.Lock, which is single-loop) so two threads can't both
+        decide to build a new session for the same loop transition at once.
         """
-        if self._session is None or self._session.closed:
-            headers = {}
-            if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
-            connector = aiohttp.TCPConnector(force_close=True)
-            self._session = aiohttp.ClientSession(
-                headers=headers,
-                timeout=self.timeout,
-                connector=connector,
+        current_loop = asyncio.get_running_loop()
+        with self._session_lock:
+            needs_new_session = (
+                self._session is None
+                or self._session.closed
+                or self._session_loop is not current_loop
             )
-        return self._session
+            if needs_new_session:
+                headers = {}
+                if self.api_key:
+                    headers["Authorization"] = f"Bearer {self.api_key}"
+                connector = aiohttp.TCPConnector(force_close=True)
+                self._session = aiohttp.ClientSession(
+                    headers=headers,
+                    timeout=self.timeout,
+                    connector=connector,
+                )
+                self._session_loop = current_loop
+            return self._session
 
     async def _request(
         self,
@@ -338,6 +376,9 @@ class UltimateBackendClient(EPGClient):
         coroutine passed to asyncio.run()) so that the next job starts with a
         clean session on a fresh event loop.
         """
-        if self._session and not self._session.closed:
-            await self._session.close()
+        with self._session_lock:
+            session = self._session
             self._session = None
+            self._session_loop = None
+        if session and not session.closed:
+            await session.close()

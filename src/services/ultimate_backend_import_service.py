@@ -97,24 +97,21 @@ class UltimateBackendImportService:
 
         logger.info(f"Found {len(rows)} channels for full import")
 
-        try:
-            tasks = [
-                self._import_channel_with_semaphore(
-                    ultimate_channel_db_id=row["ultimate_channel_id"],
-                    provider_name=row["provider_name"],
-                    ultimate_channel_id=row["channel_id"],
-                    logical_channel_id=row["logical_channel_id"],
-                    channel_name=row["channel_name"],
-                    force_full=True,
-                    provider_future_days=row.get("future_days"),
-                    provider_past_days=row.get("past_days"),
-                    provider_chunk_hours=row.get("chunk_hours"),
-                )
-                for row in rows
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-        finally:
-            await self.client.close()
+        tasks = [
+            self._import_channel_with_semaphore(
+                ultimate_channel_db_id=row["ultimate_channel_id"],
+                provider_name=row["provider_name"],
+                ultimate_channel_id=row["channel_id"],
+                logical_channel_id=row["logical_channel_id"],
+                channel_name=row["channel_name"],
+                force_full=True,
+                provider_future_days=row.get("future_days"),
+                provider_past_days=row.get("past_days"),
+                provider_chunk_hours=row.get("chunk_hours"),
+            )
+            for row in rows
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         return self._compile_stats(rows, results, "Full import")
 
@@ -142,23 +139,20 @@ class UltimateBackendImportService:
 
         logger.info(f"Found {len(rows)} channels for incremental import")
 
-        try:
-            tasks = [
-                self._import_channel_with_semaphore(
-                    ultimate_channel_db_id=row["ultimate_channel_id"],
-                    provider_name=row["provider_name"],
-                    ultimate_channel_id=row["channel_id"],
-                    logical_channel_id=row["logical_channel_id"],
-                    channel_name=row["channel_name"],
-                    provider_future_days=row.get("future_days"),
-                    provider_past_days=row.get("past_days"),
-                    provider_chunk_hours=row.get("chunk_hours"),
-                )
-                for row in rows
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-        finally:
-            await self.client.close()
+        tasks = [
+            self._import_channel_with_semaphore(
+                ultimate_channel_db_id=row["ultimate_channel_id"],
+                provider_name=row["provider_name"],
+                ultimate_channel_id=row["channel_id"],
+                logical_channel_id=row["logical_channel_id"],
+                channel_name=row["channel_name"],
+                provider_future_days=row.get("future_days"),
+                provider_past_days=row.get("past_days"),
+                provider_chunk_hours=row.get("chunk_hours"),
+            )
+            for row in rows
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         return self._compile_stats(rows, results, "Incremental import")
 
@@ -189,23 +183,20 @@ class UltimateBackendImportService:
 
         logger.info(f"Found {len(rows)} channels for fallback import of {provider_name}")
 
-        try:
-            tasks = [
-                self._import_channel_with_semaphore(
-                    ultimate_channel_db_id=row["ultimate_channel_id"],
-                    provider_name=row["provider_name"],
-                    ultimate_channel_id=row["channel_id"],
-                    logical_channel_id=row["logical_channel_id"],
-                    channel_name=row["channel_name"],
-                    provider_future_days=row.get("future_days"),
-                    provider_past_days=row.get("past_days"),
-                    provider_chunk_hours=row.get("chunk_hours"),
-                )
-                for row in rows
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-        finally:
-            await self.client.close()
+        tasks = [
+            self._import_channel_with_semaphore(
+                ultimate_channel_db_id=row["ultimate_channel_id"],
+                provider_name=row["provider_name"],
+                ultimate_channel_id=row["channel_id"],
+                logical_channel_id=row["logical_channel_id"],
+                channel_name=row["channel_name"],
+                provider_future_days=row.get("future_days"),
+                provider_past_days=row.get("past_days"),
+                provider_chunk_hours=row.get("chunk_hours"),
+            )
+            for row in rows
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         return self._compile_stats(
             rows, results, f"Channel-based fallback import for {provider_name}"
