@@ -705,42 +705,46 @@ class EPGService:
         if not channel_ids:
             return [], []
 
-        # Build channel ID to identifier mapping for XMLTV
-        channel_identifier_map: Dict[int, str] = {}
+        # Build channel ID to identifier mapping for XMLTV.
+        # Previously this issued one query per channel (N+1); for providers
+        # with hundreds of channels that meant hundreds of sequential
+        # round-trips before the (larger) programs query even ran, holding
+        # the export thread's connection open that much longer. Both
+        # branches below now use a single batched query.
+        channel_identifier_map: Dict[int, str] = {
+            channel.id: str(channel.id) for channel in channels
+        }
+        channel_placeholders = ",".join(["?"] * len(channel_ids))
 
         if source_type == "xmltv":
-            # Get provider_channel_id for each channel
-            for channel in channels:
-                row = db.fetchone(
-                    """
-                    SELECT provider_channel_id 
-                    FROM channel_mappings 
-                    WHERE provider_id = ? AND channel_id = ?
-                    """,
-                    (provider_id, channel.id),
-                )
-                channel_identifier_map[channel.id] = row[0] if row else str(channel.id)
+            rows = db.fetchall(
+                f"""
+                SELECT channel_id, provider_channel_id
+                FROM channel_mappings
+                WHERE provider_id = ? AND channel_id IN ({channel_placeholders})
+                """,
+                tuple([provider_id] + channel_ids),
+            )
+            for row in rows:
+                if row["provider_channel_id"]:
+                    channel_identifier_map[row["channel_id"]] = row["provider_channel_id"]
         else:
             # For Ultimate Backend, get ultimate_channel_id via ultimate_provider_id
             ultimate_provider_id = self._resolve_ultimate_provider_id(provider)
 
             if ultimate_provider_id:
-                for channel in channels:
-                    row = db.fetchone(
-                        """
-                        SELECT uc.ultimate_channel_id
-                        FROM ultimate_channels uc
-                        JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
-                        WHERE uc.ultimate_provider_id = ? AND ucm.channel_id = ?
-                        """,
-                        (ultimate_provider_id, channel.id),
-                    )
-                    channel_identifier_map[channel.id] = (
-                        row[0] if row else str(channel.id)
-                    )
-            else:
-                for channel in channels:
-                    channel_identifier_map[channel.id] = str(channel.id)
+                rows = db.fetchall(
+                    f"""
+                    SELECT ucm.channel_id, uc.ultimate_channel_id
+                    FROM ultimate_channels uc
+                    JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
+                    WHERE uc.ultimate_provider_id = ? AND ucm.channel_id IN ({channel_placeholders})
+                    """,
+                    tuple([ultimate_provider_id] + channel_ids),
+                )
+                for row in rows:
+                    if row["ultimate_channel_id"]:
+                        channel_identifier_map[row["channel_id"]] = row["ultimate_channel_id"]
 
         # Get programs for these channels
         placeholders = ",".join(["?"] * len(channel_ids))

@@ -4,8 +4,8 @@ XMLTV serializer for exporting EPG data to XMLTV format.
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
-from xml.etree.ElementTree import Element, SubElement, tostring
+from typing import Dict, List, Optional, Any, BinaryIO
+from xml.etree.ElementTree import Element, ElementTree, SubElement, tostring
 from xml.dom import minidom
 
 logger = logging.getLogger(__name__)
@@ -283,30 +283,18 @@ class XMLTVSerializer:
 
         return prog_elem
 
-    def serialize_tv(
+    def _build_tv_element(
         self,
         channels: List[Dict],
         programs: List[Dict],
-        generator_info_name: str = "EPG Service",
-        generator_info_url: str = "",
-        source_info_name: str = "",
-        source_info_url: str = "",
-    ) -> str:
-        """
-        Serialize complete TV listing to XMLTV format.
-
-        Args:
-            channels: List of channel dicts
-            programs: List of program dicts with channel_id mapping
-            generator_info_name: Name of the generator
-            generator_info_url: URL of the generator
-            source_info_name: Name of the data source
-            source_info_url: URL of the data source
-
-        Returns:
-            XMLTV formatted string
-        """
-        # Create root element
+        generator_info_name: str,
+        generator_info_url: str,
+        source_info_name: str,
+        source_info_url: str,
+    ) -> Element:
+        """Build the <tv> Element tree shared by both serialize_tv() and
+        serialize_tv_to_file(). Pulled out so the two entry points can't
+        drift apart."""
         tv_attrs = {
             "generator-info-name": generator_info_name,
             # datetime.utcnow() is deprecated (3.12+) and returns a naive
@@ -341,6 +329,44 @@ class XMLTVSerializer:
             if channel_id:
                 tv_elem.append(self.serialize_program(program, channel_id))
 
+        return tv_elem
+
+    def serialize_tv(
+        self,
+        channels: List[Dict],
+        programs: List[Dict],
+        generator_info_name: str = "EPG Service",
+        generator_info_url: str = "",
+        source_info_name: str = "",
+        source_info_url: str = "",
+    ) -> str:
+        """
+        Serialize complete TV listing to XMLTV format, pretty-printed.
+
+        Kept for the uncompressed /epg.xml endpoint and anywhere a plain
+        string is genuinely needed. For large exports (the .xml.gz path),
+        use serialize_tv_to_file() instead -- this method builds the
+        document three times over (ElementTree, tostring() bytes, then a
+        full minidom DOM just to pretty-print) which is what drove the
+        memory spike on magentaeu_at.
+
+        Args:
+            channels: List of channel dicts
+            programs: List of program dicts with channel_id mapping
+            generator_info_name: Name of the generator
+            generator_info_url: URL of the generator
+            source_info_name: Name of the data source
+            source_info_url: URL of the data source
+
+        Returns:
+            XMLTV formatted string
+        """
+        tv_elem = self._build_tv_element(
+            channels, programs,
+            generator_info_name, generator_info_url,
+            source_info_name, source_info_url,
+        )
+
         # Convert to pretty XML string
         rough_string = tostring(tv_elem, "utf-8")
         reparsed = minidom.parseString(rough_string)
@@ -354,3 +380,48 @@ class XMLTVSerializer:
             result = pretty_xml
 
         return result
+
+    def serialize_tv_to_file(
+        self,
+        channels: List[Dict],
+        programs: List[Dict],
+        fileobj: BinaryIO,
+        generator_info_name: str = "EPG Service",
+        generator_info_url: str = "",
+        source_info_name: str = "",
+        source_info_url: str = "",
+    ) -> None:
+        """
+        Serialize complete TV listing to XMLTV format, writing directly to
+        a binary file-like object (e.g. a GzipFile) instead of returning a
+        string.
+
+        This skips the tostring() -> minidom.parseString() -> toprettyxml()
+        round trip entirely: that chain builds the whole document as bytes,
+        then rebuilds it a second time as a minidom DOM (which has much
+        higher per-node overhead than ElementTree) purely to add
+        indentation, then produces a third full copy as the pretty-printed
+        string. For large providers that's 2-3 extra full-size documents
+        alive in memory simultaneously on top of the ElementTree itself --
+        this was the primary driver of the OOM kill during the
+        magentaeu_at export. Output here is not indented; XMLTV consumers
+        don't require pretty-printing, only humans reading the raw file do.
+
+        Args:
+            channels: List of channel dicts
+            programs: List of program dicts with channel_id mapping
+            fileobj: Binary file-like object to write the XML into
+            generator_info_name: Name of the generator
+            generator_info_url: URL of the generator
+            source_info_name: Name of the data source
+            source_info_url: URL of the data source
+        """
+        tv_elem = self._build_tv_element(
+            channels, programs,
+            generator_info_name, generator_info_url,
+            source_info_name, source_info_url,
+        )
+
+        fileobj.write(b'<?xml version="1.0" encoding="UTF-8"?>\n')
+        fileobj.write(self.DOCTYPE.encode("utf-8") + b"\n")
+        ElementTree(tv_elem).write(fileobj, encoding="utf-8", xml_declaration=False)
