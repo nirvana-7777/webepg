@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, Response, send_file
 from dateutil.parser import isoparse
 
 from . import ServiceRegistry
+from ..database.connection import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -536,3 +537,181 @@ def trigger_provider_import(provider_id):
     except Exception as e:
         logger.error(f"Error triggering import for provider {provider_id}: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Database-backed per-channel EPG endpoint (drop-in replacement for the
+# Ultimate Backend API's /providers/{provider}/channels/{id}/epg format).
+# ---------------------------------------------------------------------------
+
+# Reject windows wider than this to prevent unbounded DB scans from
+# malformed or malicious start_time/end_time query params.
+MAX_EPG_WINDOW_SECONDS = 14 * 24 * 3600  # 14 days
+
+
+def _to_utc_epoch(dt: datetime) -> int:
+    """
+    Convert a datetime to a Unix epoch (UTC) safely.
+
+    datetime.timestamp() on a NAIVE datetime assumes the *local* system
+    timezone, not UTC -- this has bitten this codebase before (see
+    _parse_datetime_safe, _fetch_day_schedules). EPG values stored in the
+    DB are UTC but may come back from the driver as naive. Treat naive
+    datetimes as UTC explicitly instead of trusting the local tz.
+
+    NOTE: this assumes naive datetimes from epg_service.get_programs()
+    represent UTC. If that service actually returns naive local
+    (Europe/Vienna) datetimes, this needs to localize to Vienna first
+    and then convert to UTC instead of the direct replace() below.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
+
+
+def _map_to_dvb_genre(category: str = None, genre_dvb: int = None) -> int:
+    """Map to DVB genre code."""
+    if genre_dvb is not None:
+        return genre_dvb
+    if not category:
+        return 0
+
+    genre_map = {
+        "movie": 0x10, "film": 0x10, "drama": 0x10, "series": 0x10,
+        "news": 0x20, "aktuell": 0x20, "nachrichten": 0x20,
+        "sport": 0x40, "fussball": 0x40, "football": 0x40,
+        "documentary": 0x50, "dokumentation": 0x50, "doku": 0x50,
+        "comedy": 0x60, "komödie": 0x60,
+        "kids": 0x80, "children": 0x80, "kind": 0x80, "cartoon": 0x80,
+        "music": 0x90, "musik": 0x90,
+        "lifestyle": 0xA0, "culture": 0xA0, "kultur": 0xA0,
+        "education": 0xB0, "bildung": 0xB0,
+        "talk": 0xC0, "talkshow": 0xC0,
+        "entertainment": 0xE0, "show": 0xE0,
+    }
+
+    category_lower = category.lower()
+    for key, value in genre_map.items():
+        if key in category_lower:
+            return value
+    return 0
+
+
+def _get_channel_by_provider_and_id(provider_name: str, channel_id: str):
+    """Resolve provider:channel_id to logical channel."""
+    db = get_db()
+
+    # Try XMLTV mapping
+    row = db.fetchone(
+        """
+        SELECT c.id, c.name, c.display_name
+        FROM channel_mappings cm
+        JOIN providers p ON cm.provider_id = p.id
+        JOIN channels c ON cm.channel_id = c.id
+        WHERE p.name = ? AND cm.provider_channel_id = ?
+        """,
+        (provider_name, channel_id)
+    )
+
+    if row:
+        return {"id": row[0], "name": row[1], "display_name": row[2]}
+
+    # Try Ultimate Backend mapping
+    row = db.fetchone(
+        """
+        SELECT c.id, c.name, c.display_name
+        FROM ultimate_channel_mappings ucm
+        JOIN ultimate_channels uc ON ucm.ultimate_channel_id = uc.id
+        JOIN ultimate_providers up ON uc.ultimate_provider_id = up.id
+        JOIN channels c ON ucm.channel_id = c.id
+        WHERE up.provider_name = ? AND uc.ultimate_channel_id = ?
+        """,
+        (provider_name, channel_id)
+    )
+
+    if row:
+        return {"id": row[0], "name": row[1], "display_name": row[2]}
+
+    return None
+
+
+@providers_bp.route("/providers/<provider>/channels/<channel_id>/epg", methods=["GET"])
+def get_provider_channel_epg(provider, channel_id):
+    """
+    Database-backed EPG endpoint matching Ultimate Backend API format.
+
+    This allows the PVR addon to use the database EPG service
+    as a drop-in replacement for the Ultimate Backend API.
+
+    Path: /api/v1/providers/{provider}/channels/{id}/epg
+    Query: ?start_time={unix_timestamp}&end_time={unix_timestamp}
+
+    Returns: Same format as Ultimate Backend API
+    """
+    try:
+        epg_service = ServiceRegistry.epg_service
+        if not epg_service:
+            return jsonify({"error": "EPG service not initialized"}), 500
+
+        start_time = request.args.get("start_time")
+        end_time = request.args.get("end_time")
+
+        if not start_time or not end_time:
+            return jsonify({"error": "start_time and end_time required"}), 400
+
+        # Parse Unix timestamps
+        try:
+            start = datetime.fromtimestamp(int(start_time), tz=timezone.utc)
+            end = datetime.fromtimestamp(int(end_time), tz=timezone.utc)
+        except (ValueError, TypeError, OSError) as e:
+            logger.warning(f"Invalid timestamp: start={start_time}, end={end_time}, error={e}")
+            return jsonify({"error": "Invalid timestamp format"}), 400
+
+        if start >= end:
+            return jsonify({"error": "start_time must be before end_time"}), 400
+
+        # Reject overly large windows
+        if (end - start).total_seconds() > MAX_EPG_WINDOW_SECONDS:
+            logger.warning(f"Rejected oversized EPG window: {end - start}")
+            return jsonify({"error": "time window too large"}), 400
+
+        # Resolve channel
+        channel = _get_channel_by_provider_and_id(provider, channel_id)
+        if not channel:
+            logger.warning(f"Channel not found: provider={provider}, channel_id={channel_id}")
+            return jsonify({"epg": []})  # Empty EPG, not error
+
+        # Get programs from database
+        programs = epg_service.get_programs(channel["id"], start, end)
+
+        # Format exactly like Ultimate Backend API
+        epg_data = []
+        for prog in programs:
+            epg_item = {
+                "start": _to_utc_epoch(prog.start_time),
+                "end": _to_utc_epoch(prog.end_time),
+                "title": prog.title or "",
+                "plot": prog.description or "",
+                "genre": _map_to_dvb_genre(prog.category, prog.genre_dvb),
+                "episode_number": prog.episode_num or 0,
+                "season_number": prog.season_num or 0,
+                "episode_name": prog.subtitle or "",
+                "icon": prog.icon_url or prog.thumbnail_url or "",
+            }
+            epg_data.append(epg_item)
+
+        logger.debug(
+            f"EPG response: provider={provider}, channel={channel_id}, "
+            f"programs={len(epg_data)}, window={end - start}"
+        )
+
+        return jsonify({"epg": epg_data})
+
+    except Exception:
+        # Log full detail server-side only; don't leak internals
+        # (stack traces, SQL fragments, etc.) to the PVR client.
+        logger.error(
+            f"EPG error: provider={provider}, channel={channel_id}",
+            exc_info=True,
+        )
+        return jsonify({"error": "internal error"}), 500
