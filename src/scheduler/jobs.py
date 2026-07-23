@@ -350,25 +350,31 @@ class JobScheduler:
                     logger.warning(f"No channels for provider {provider.name}, skipping")
                     continue
 
-                # Serialize to XML
+                # Serialize to XML, streaming straight into the gzip file.
+                # serialize_tv_to_file() (not serialize_tv()) is required here:
+                # serialize_tv() builds the document 2-3x in memory (ElementTree
+                # -> tostring() bytes -> minidom DOM -> pretty string) purely for
+                # cosmetic indentation, which is what OOM-killed this job on
+                # magentaeu_at. serialize_tv_to_file() writes directly into the
+                # gzip stream with no full-document string ever materialized --
+                # same fix already applied to the on-demand /export route in
+                # providers.py.
                 from ..parsers.xmltv_serializer import XMLTVSerializer
                 serializer = XMLTVSerializer()
 
-                xml_output = serializer.serialize_tv(
-                    channels=channels,
-                    programs=programs,
-                    generator_info_name="EPG Service/1.0.0",
-                    generator_info_url="https://github.com/your-repo/epg-service",
-                    source_info_name=provider.name,
-                    source_info_url=provider.xmltv_url if provider.xmltv_url else None,
-                )
-
-                # Write compressed file
                 filename = f"epg_{provider.name.replace(' ', '_')}.xml.gz"
                 filepath = os.path.join(export_dir, filename)
 
-                with gzip.open(filepath, 'wt', encoding='utf-8') as f:
-                    f.write(xml_output)
+                with gzip.open(filepath, 'wb') as f:
+                    serializer.serialize_tv_to_file(
+                        channels=channels,
+                        programs=programs,
+                        fileobj=f,
+                        generator_info_name="EPG Service/1.0.0",
+                        generator_info_url="https://github.com/nirvana-7777/webepg",
+                        source_info_name=provider.name,
+                        source_info_url=provider.xmltv_url if provider.xmltv_url else None,
+                    )
 
                 size_mb = os.path.getsize(filepath) / (1024 * 1024)
                 logger.info(f"Exported {provider.name}: {len(programs)} programs, {size_mb:.2f} MB")
