@@ -26,7 +26,7 @@ class Config:
         "logging": {"level": "INFO", "format": "text"},
         "export": {
             "enabled": True,
-            "time": "05:00",  # ← Add this
+            "time": "09:00",  # ← Add this
             "dir": "/tmp/epg_exports",
         },
         "ultimate_backend": {
