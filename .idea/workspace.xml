@@ -4,9 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Fix nightly export">
+    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="Add channel based export">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/api/providers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/api/providers.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -44,61 +43,61 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0" />
-      <entry key="MS500" value="1.0" />
-      <entry key="S2" value="1.0" />
-      <entry key="S5" value="1.0" />
-      <entry key="S10" value="1.0" />
-      <entry key="S30" value="1.000000865897783" />
-      <entry key="S60" value="1.0033090834013463" />
-      <entry key="M2" value="1.2323238756441317" />
-      <entry key="M5" value="4.327173830406643" />
-      <entry key="M10" value="9.296977739220914" />
-      <entry key="M15" value="12.288162000568391" />
-      <entry key="M30" value="16.383464877057456" />
-      <entry key="H1" value="18.970175027288835" />
-      <entry key="H2" value="20.515680951203713" />
-      <entry key="H4" value="22.732864324890535" />
-      <entry key="D1" value="38.08952198690828" />
-      <entry key="W1" value="46.28686260094796" />
+      <entry key="MS100" value="1.012304551342129" />
+      <entry key="MS500" value="1.628261242931678" />
+      <entry key="S2" value="3.744573588185537" />
+      <entry key="S5" value="5.285558377629848" />
+      <entry key="S10" value="6.0502136163089455" />
+      <entry key="S30" value="6.659886104314504" />
+      <entry key="S60" value="6.826795595676312" />
+      <entry key="M2" value="6.912594385932516" />
+      <entry key="M5" value="6.9648427743537855" />
+      <entry key="M10" value="6.982388708623495" />
+      <entry key="M15" value="6.988252183361018" />
+      <entry key="M30" value="6.996765133563799" />
+      <entry key="H1" value="7.237997586359273" />
+      <entry key="H2" value="9.310607105190853" />
+      <entry key="H4" value="14.63080794229337" />
+      <entry key="D1" value="38.75388588856647" />
+      <entry key="W1" value="52.09941063309322" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
       <entry key="MS500" value="0.0" />
-      <entry key="S2" value="9.507099037226879E-139" />
-      <entry key="S5" value="6.183284185053098E-56" />
-      <entry key="S10" value="2.4866210376840897E-28" />
-      <entry key="S30" value="6.288347519129258E-10" />
-      <entry key="S60" value="2.507657775520667E-5" />
-      <entry key="M2" value="0.005007651920332189" />
-      <entry key="M5" value="0.120185936936004" />
-      <entry key="M10" value="0.3466784344836061" />
-      <entry key="M15" value="0.4934970389094334" />
-      <entry key="M30" value="0.7024934440330622" />
-      <entry key="H1" value="0.8381488197408992" />
-      <entry key="H2" value="0.915504680348986" />
-      <entry key="H4" value="0.9568200877641451" />
-      <entry key="D1" value="0.9926703437041107" />
-      <entry key="W1" value="0.9989496020243493" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="1.8133094575603167E-237" />
+      <entry key="S60" value="4.2582971450573005E-119" />
+      <entry key="M2" value="6.525562922121971E-60" />
+      <entry key="M5" value="2.1176159170004204E-24" />
+      <entry key="M10" value="1.455203050093155E-12" />
+      <entry key="M15" value="1.2841499254368803E-8" />
+      <entry key="M30" value="1.1332033910277884E-4" />
+      <entry key="H1" value="0.010645202633241835" />
+      <entry key="H2" value="0.10317559126674211" />
+      <entry key="H4" value="0.32120957530363586" />
+      <entry key="D1" value="0.8275573124368089" />
+      <entry key="W1" value="0.9733227368957451" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.42928271821887687" />
-      <entry key="MS500" value="0.8444008874237819" />
-      <entry key="S2" value="0.9585994384929766" />
-      <entry key="S5" value="0.9832294271490033" />
-      <entry key="S10" value="0.9915792591361536" />
-      <entry key="S30" value="0.9971860368368312" />
-      <entry key="S60" value="1.001924991134086" />
-      <entry key="M2" value="1.236578416475682" />
-      <entry key="M5" value="4.44666823948347" />
-      <entry key="M10" value="9.642940886337893" />
-      <entry key="M15" value="12.78102443164618" />
-      <entry key="M30" value="17.085529421305168" />
-      <entry key="H1" value="19.80807332798406" />
-      <entry key="H2" value="21.43104980888063" />
-      <entry key="H4" value="23.689611370294887" />
-      <entry key="D1" value="39.08217571715049" />
-      <entry key="W1" value="47.28580950223383" />
+      <entry key="MS100" value="0.8942616802527917" />
+      <entry key="MS500" value="1.5946105986693448" />
+      <entry key="S2" value="3.7278006646398767" />
+      <entry key="S5" value="5.276439576329064" />
+      <entry key="S10" value="6.04505915276756" />
+      <entry key="S30" value="6.658010124591782" />
+      <entry key="S60" value="6.825836023881866" />
+      <entry key="M2" value="6.912109054706216" />
+      <entry key="M5" value="6.964647291321217" />
+      <entry key="M10" value="6.982290740359187" />
+      <entry key="M15" value="6.988186833496417" />
+      <entry key="M30" value="6.9968456780844095" />
+      <entry key="H1" value="7.248623247544033" />
+      <entry key="H2" value="9.41375920810302" />
+      <entry key="H4" value="14.951988905791682" />
+      <entry key="D1" value="39.58142866899023" />
+      <entry key="W1" value="53.07273064111843" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -167,7 +166,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-50341a9f1f9c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.26222.68" />
+        <option value="bundled-python-sdk-c6d794e1806d-5bd6d13a2a75-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-262.8665.309" />
       </set>
     </attachedChunks>
   </component>
@@ -192,14 +191,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00044" summary="Read EPG from backend">
-      <option name="closed" value="true" />
-      <created>1775585158640</created>
-      <option name="number" value="00044" />
-      <option name="presentableId" value="LOCAL-00044" />
-      <option name="project" value="LOCAL" />
-      <updated>1775585158640</updated>
     </task>
     <task id="LOCAL-00045" summary="Read EPG from backend">
       <option name="closed" value="true" />
@@ -585,7 +576,15 @@
       <option name="project" value="LOCAL" />
       <updated>1784785867485</updated>
     </task>
-    <option name="localTasksCounter" value="93" />
+    <task id="LOCAL-00093" summary="Add channel based export">
+      <option name="closed" value="true" />
+      <created>1784808533734</created>
+      <option name="number" value="00093" />
+      <option name="presentableId" value="LOCAL-00093" />
+      <option name="project" value="LOCAL" />
+      <updated>1784808533734</updated>
+    </task>
+    <option name="localTasksCounter" value="94" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -608,7 +607,8 @@
     <MESSAGE value="Move xmltv export to 5am" />
     <MESSAGE value="Improve import details" />
     <MESSAGE value="Fix nightly export" />
-    <option name="LAST_COMMIT_MESSAGE" value="Fix nightly export" />
+    <MESSAGE value="Add channel based export" />
+    <option name="LAST_COMMIT_MESSAGE" value="Add channel based export" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/webepg$main.coverage" NAME="main Coverage Results" MODIFIED="1766784290681" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

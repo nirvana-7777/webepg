@@ -2,10 +2,17 @@
 Database schema definition and migration management for EPG service.
 """
 
+import contextlib
 import logging
 import sqlite3
 from pathlib import Path
 from typing import Optional
+
+try:
+    import fcntl
+    _HAS_FCNTL = True
+except ImportError:  # pragma: no cover - non-POSIX platforms
+    _HAS_FCNTL = False
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +21,12 @@ class SchemaManager:
     """Manages database schema creation and migrations."""
 
     SCHEMA_VERSION = 8
+    # The version that SCHEMA_SQL represents (the initial/baseline schema).
+    # Migrations run from this version up to SCHEMA_VERSION on fresh installs,
+    # so SCHEMA_SQL should stay a faithful "version 1" snapshot -- do not fold
+    # later-migration columns back into it without also bumping this constant
+    # and re-verifying the full migration chain end to end.
+    INITIAL_SCHEMA_VERSION = 1
 
     SCHEMA_SQL = """
     -- Schema version tracking
@@ -77,15 +90,15 @@ class SchemaManager:
         category TEXT,
         episode_num TEXT,
         rating TEXT,
-        actors TEXT,  -- Will store JSON array
-        directors TEXT,  -- Will store JSON array
-        presenters TEXT,  -- NEW: JSON array of presenters
-        writers TEXT,  -- NEW: JSON array of writers
-        producers TEXT,  -- NEW: JSON array of producers
+        actors TEXT,  -- JSON array
+        directors TEXT,  -- JSON array
+        presenters TEXT,  -- JSON array of presenters
+        writers TEXT,  -- JSON array of writers
+        producers TEXT,  -- JSON array of producers
         icon_url TEXT,
-        production_year TEXT,  -- NEW: Production year (date from XML)
-        country TEXT,  -- NEW: Country of origin
-        language TEXT, -- NEW: Language of the program
+        production_year TEXT,
+        country TEXT,
+        language TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
         FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
@@ -133,65 +146,125 @@ class SchemaManager:
     ON programs(channel_id, start_time);
     """
 
+    # ------------------------------------------------------------------
+    # Cross-process locking
+    # ------------------------------------------------------------------
+    #
+    # SQLite's own locking protects individual statements/transactions, but
+    # it does not serialize the higher-level "check version, then maybe run
+    # a multi-statement migration" sequence used below. Two processes
+    # starting up against the same fresh database (e.g. two containers
+    # sharing a volume) could both observe `current_version is None` and
+    # both attempt to create the baseline schema / run migrations
+    # concurrently. An flock-based sidecar lock file serializes
+    # `initialize_database` across processes on the same host without
+    # interfering with the migrations' own internal commits (which a
+    # nested `BEGIN IMMEDIATE` transaction would break).
+    @staticmethod
+    @contextlib.contextmanager
+    def _init_lock(db_path: str):
+        if not _HAS_FCNTL:
+            logger.warning(
+                "fcntl unavailable on this platform; skipping cross-process "
+                "init lock. Ensure only one process initializes this "
+                "database at a time."
+            )
+            yield
+            return
+
+        lock_path = f"{db_path}.initlock"
+        Path(lock_path).parent.mkdir(parents=True, exist_ok=True)
+        fd = open(lock_path, "w")
+        try:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+            fd.close()
+
     @classmethod
     def initialize_database(cls, db_path: str) -> None:
         """
         Initialize database with schema and indexes.
 
+        On a fresh database (no schema_version table), this creates the
+        initial baseline schema (version INITIAL_SCHEMA_VERSION) and then
+        runs all migrations up to SCHEMA_VERSION. This ensures fresh
+        installs get the complete, current schema rather than a partial
+        one mismatched with the recorded version.
+
+        Safe to call concurrently from multiple processes on the same
+        host; a sidecar lock file serializes initialization.
+
         Args:
             db_path: Path to SQLite database file
         """
-        # Ensure directory exists
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Set timeout to avoid lock issues
-        conn = sqlite3.connect(db_path, timeout=30.0)
-        try:
-            # Enable foreign keys
-            conn.execute("PRAGMA foreign_keys = ON")
-
-            # Set busy timeout
-            conn.execute("PRAGMA busy_timeout = 30000")
-
-            # Enable WAL mode for better concurrency
-            # WAL mode may fail if database is locked, so wrap in try-except
+        with cls._init_lock(db_path):
+            conn = sqlite3.connect(db_path, timeout=30.0)
             try:
-                conn.execute("PRAGMA journal_mode = WAL")
-            except sqlite3.OperationalError as e:
-                logger.warning(
-                    f"Could not set WAL mode: {e}. Continuing with default journal mode."
-                )
+                conn.execute("PRAGMA foreign_keys = ON")
+                conn.execute("PRAGMA busy_timeout = 30000")
 
-            # Create schema
-            conn.executescript(cls.SCHEMA_SQL)
+                try:
+                    conn.execute("PRAGMA journal_mode = WAL")
+                except sqlite3.OperationalError as e:
+                    logger.warning(
+                        f"Could not set WAL mode: {e}. Continuing with "
+                        "default journal mode."
+                    )
 
-            # Create indexes
-            conn.executescript(cls.INDEXES_SQL)
+                # Check current schema version BEFORE creating any schema
+                # objects. This tells us whether the DB is truly fresh or
+                # pre-existing.
+                current_version = cls._get_schema_version(conn)
 
-            # Record schema version
-            current_version = cls._get_schema_version(conn)
+                if current_version is None:
+                    logger.info(
+                        "No schema_version found - creating baseline schema "
+                        f"(version {cls.INITIAL_SCHEMA_VERSION})"
+                    )
+                    conn.executescript(cls.SCHEMA_SQL)
+                    conn.executescript(cls.INDEXES_SQL)
 
-            if current_version is None:
-                # No version table or no version recorded - insert current version
-                conn.execute(
-                    "INSERT INTO schema_version (version) VALUES (?)",
-                    (cls.SCHEMA_VERSION,),
-                )
-                logger.info(
-                    f"Initialized database with schema version {cls.SCHEMA_VERSION}"
-                )
-            elif current_version < cls.SCHEMA_VERSION:
-                # Run migrations sequentially
-                logger.info(
-                    f"Database at version {current_version}, migrating to {cls.SCHEMA_VERSION}"
-                )
-                cls._migrate_database(conn, current_version, cls.SCHEMA_VERSION)
-            else:
-                logger.info(f"Database already at version {current_version}")
+                    # Record the INITIAL schema version (NOT the target
+                    # SCHEMA_VERSION). Migrations below advance it
+                    # step-by-step to SCHEMA_VERSION.
+                    cls._update_schema_version(conn, cls.INITIAL_SCHEMA_VERSION)
+                    current_version = cls.INITIAL_SCHEMA_VERSION
+                    logger.info(
+                        "Initialized fresh database at baseline version "
+                        f"{cls.INITIAL_SCHEMA_VERSION}"
+                    )
+                else:
+                    # Pre-existing database with a recorded version. Ensure
+                    # base tables/indexes exist (idempotent via IF NOT
+                    # EXISTS) for safety.
+                    conn.executescript(cls.SCHEMA_SQL)
+                    conn.executescript(cls.INDEXES_SQL)
 
-            conn.commit()
-        finally:
-            conn.close()
+                if current_version < cls.SCHEMA_VERSION:
+                    logger.info(
+                        f"Database at version {current_version}, "
+                        f"migrating to {cls.SCHEMA_VERSION}"
+                    )
+                    cls._migrate_database(conn, current_version, cls.SCHEMA_VERSION)
+                elif current_version > cls.SCHEMA_VERSION:
+                    logger.warning(
+                        f"Database version {current_version} is NEWER than "
+                        f"code version {cls.SCHEMA_VERSION}. Running in "
+                        "compatibility mode."
+                    )
+                else:
+                    logger.info(f"Database already at version {current_version}")
+
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
 
     @classmethod
     def _migrate_database(
@@ -200,7 +273,11 @@ class SchemaManager:
         """
         Run database migrations sequentially from from_version to to_version.
 
-        This method recursively calls itself to ensure all migrations run in order.
+        Recurses to ensure all migrations run in order. Each individual
+        migration function commits its own work, so a failure partway
+        through this chain leaves the database at the last successfully
+        completed version rather than rolling everything back -- retrying
+        `initialize_database` will resume from there.
         """
         logger.info(f"Migrating database from version {from_version} to {to_version}")
 
@@ -208,11 +285,7 @@ class SchemaManager:
         if from_version == 1 and to_version >= 2:
             logger.info("Applying migration 1 -> 2")
             cls._migrate_v1_to_v2(conn)
-
-            # Update version to 2
             cls._update_schema_version(conn, 2)
-
-            # Continue to next migration if needed
             if to_version > 2:
                 cls._migrate_database(conn, 2, to_version)
             return
@@ -223,11 +296,7 @@ class SchemaManager:
             from ..database.migrations.v3_ultimate_backend import migrate_v2_to_v3
 
             migrate_v2_to_v3(conn)
-
-            # Update version to 3
             cls._update_schema_version(conn, 3)
-
-            # Continue to next migration if needed
             if to_version > 3:
                 cls._migrate_database(conn, 3, to_version)
             return
@@ -238,11 +307,7 @@ class SchemaManager:
             from ..database.migrations.v4_unified_providers import migrate_v3_to_v4
 
             migrate_v3_to_v4(conn)
-
-            # Update version to 4
             cls._update_schema_version(conn, 4)
-
-            # Continue to next migration if needed
             if to_version > 4:
                 cls._migrate_database(conn, 4, to_version)
             return
@@ -253,11 +318,7 @@ class SchemaManager:
             from ..database.migrations.v5_add_channel_updated_at import migrate_v4_to_v5
 
             migrate_v4_to_v5(conn)
-
-            # Update version to 5
             cls._update_schema_version(conn, 5)
-
-            # Continue to next migration if needed
             if to_version > 5:
                 cls._migrate_database(conn, 5, to_version)
             return
@@ -268,11 +329,7 @@ class SchemaManager:
             from ..database.migrations.v6_add_program_language import migrate_v5_to_v6
 
             migrate_v5_to_v6(conn)
-
-            # Update version to 6
             cls._update_schema_version(conn, 6)
-
-            # Continue to next migration if needed
             if to_version > 6:
                 cls._migrate_database(conn, 6, to_version)
             return
@@ -283,11 +340,7 @@ class SchemaManager:
             from ..database.migrations.v7_epg_details import migrate_v6_to_v7
 
             migrate_v6_to_v7(conn)
-
-            # Update version to 7
             cls._update_schema_version(conn, 7)
-
-            # Continue to next migration if needed
             if to_version > 7:
                 cls._migrate_database(conn, 7, to_version)
             return
@@ -298,11 +351,7 @@ class SchemaManager:
             from ..database.migrations.v8_channel_import_errors import migrate_v7_to_v8
 
             migrate_v7_to_v8(conn)
-
-            # Update version to 8
             cls._update_schema_version(conn, 8)
-
-            # Continue to next migration if needed
             if to_version > 8:
                 cls._migrate_database(conn, 8, to_version)
             return
@@ -321,7 +370,6 @@ class SchemaManager:
         """Migration from version 1 to 2."""
         cursor = conn.cursor()
 
-        # Add new columns - check if they exist first to make migration idempotent
         new_columns = [
             ("presenters", "TEXT"),
             ("writers", "TEXT"),
@@ -330,11 +378,10 @@ class SchemaManager:
             ("country", "TEXT"),
         ]
 
-        for column_name, column_type in new_columns:
-            # Check if column already exists
-            cursor.execute("PRAGMA table_info(programs)")
-            existing_columns = [row[1] for row in cursor.fetchall()]
+        cursor.execute("PRAGMA table_info(programs)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
 
+        for column_name, column_type in new_columns:
             if column_name not in existing_columns:
                 cursor.execute(
                     f"ALTER TABLE programs ADD COLUMN {column_name} {column_type}"
@@ -351,16 +398,14 @@ class SchemaManager:
         """Update or insert the schema version."""
         cursor = conn.cursor()
 
-        # Check if version already exists
         cursor.execute("SELECT 1 FROM schema_version WHERE version = ?", (version,))
         if cursor.fetchone():
-            # Version already recorded, update timestamp
             cursor.execute(
-                "UPDATE schema_version SET applied_at = CURRENT_TIMESTAMP WHERE version = ?",
+                "UPDATE schema_version SET applied_at = CURRENT_TIMESTAMP "
+                "WHERE version = ?",
                 (version,),
             )
         else:
-            # Insert new version
             cursor.execute(
                 "INSERT INTO schema_version (version) VALUES (?)", (version,)
             )
@@ -390,8 +435,9 @@ class SchemaManager:
         Returns:
             True if schema is current, False otherwise
         """
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30.0)
         try:
+            conn.execute("PRAGMA busy_timeout = 30000")
             current_version = cls._get_schema_version(conn)
             is_current = current_version == cls.SCHEMA_VERSION
 
