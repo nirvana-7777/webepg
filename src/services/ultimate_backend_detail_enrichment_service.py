@@ -184,6 +184,8 @@ class UltimateBackendDetailEnrichmentService:
         now = datetime.now(timezone.utc)
         cutoff = now + timedelta(days=self.max_days)
 
+        already_tried = 0
+
         try:
             while True:
                 if datetime.now(timezone.utc) >= deadline:
@@ -205,8 +207,8 @@ class UltimateBackendDetailEnrichmentService:
                       AND p.start_time BETWEEN ? AND ?
                       AND p.schedule_id IS NOT NULL
                       AND p.detail_fetch_attempts < ?
-                    ORDER BY p.start_time ASC
-                    LIMIT ?
+                    ORDER BY p.start_time ASC, p.id ASC
+                    LIMIT ? OFFSET ?
                     """,
                     (
                         provider_name,
@@ -214,6 +216,7 @@ class UltimateBackendDetailEnrichmentService:
                         cutoff.isoformat(),
                         self.max_attempts,
                         PAGE_SIZE,
+                        already_tried,
                     ),
                 )
 
@@ -228,6 +231,8 @@ class UltimateBackendDetailEnrichmentService:
                         client, program["id"], provider_name, program["schedule_id"]
                     )
                     stats["enriched" if ok else "failed"] += 1
+                    if not ok:
+                        already_tried += 1
 
                 if stats["hit_deadline"]:
                     break
