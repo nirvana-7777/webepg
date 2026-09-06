@@ -126,6 +126,7 @@ class UltimateBackendProgram:
 
     epg_id: Optional[int] = None
     schedule_id: str = ""
+    epg_event_id: Optional[str] = None
     title: str = ""
     start: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     end: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -209,6 +210,13 @@ class UltimateBackendProgram:
         return cls(
             epg_id=data.get("epg_id"),
             schedule_id=str(data.get("schedule_id", data.get("program_id", ""))),
+            # Provider-native listing guid (distinct from schedule_id/program_id).
+            # Only ever populated from the per-channel /epg endpoint's program
+            # dicts (what this method parses) — the lightweight /epg/grid
+            # endpoint does not return this field, so grid-imported programs
+            # will have epg_event_id=None until/unless a future full import
+            # or a matching enrichment source fills it in.
+            epg_event_id=data.get("epg_event_id"),
             title=data.get("title", ""),
             start=start,
             end=end,
@@ -247,6 +255,7 @@ class UltimateBackendProgram:
         return {
             "ultimate_epg_id": self.epg_id,
             "schedule_id": self.schedule_id,
+            "epg_event_id": self.epg_event_id,
             "title": self.title,
             "start_time": self.start.isoformat(),
             "end_time": self.end.isoformat(),

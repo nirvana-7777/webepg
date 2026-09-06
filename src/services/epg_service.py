@@ -755,7 +755,8 @@ class EPGService:
                 p.title, p.subtitle, p.description, p.category, p.episode_num,
                 p.rating, p.actors, p.directors, p.presenters, p.writers,
                 p.producers, p.icon_url, p.production_year, p.country,
-                p.ultimate_epg_id, p.schedule_id, p.genre_description, p.genre_dvb,
+                p.ultimate_epg_id, p.schedule_id, p.epg_event_id,
+                p.genre_description, p.genre_dvb,
                 p.categories, p.season_num, p.director, p.producer, p.year,
                 p.star_rating, p.thumbnail_url, p.original_title, p.epg_flags,
                 p.has_episode_info, p.created_at

@@ -281,6 +281,14 @@ class XMLTVSerializer:
             value = SubElement(star_rating_elem, "value")
             value.text = f"{star_rating}/10"
 
+        # Provider-native listing guid (from Ultimate Backend's /epg endpoint
+        # only — not populated for grid-imported programs). Not a standard
+        # XMLTV element; custom extension so downstream consumers that know
+        # to look for it (e.g. nPVR timer scheduling) can pick it up.
+        if program.get("epg_event_id"):
+            epg_event = SubElement(prog_elem, "epg-event-id")
+            epg_event.text = program["epg_event_id"]
+
         return prog_elem
 
     def _build_tv_element(

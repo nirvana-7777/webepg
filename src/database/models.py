@@ -136,6 +136,7 @@ class Program:
     # Ultimate Backend fields (NULL for other sources)
     ultimate_epg_id: Optional[int] = None
     schedule_id: Optional[str] = None
+    epg_event_id: Optional[str] = None
     genre_description: Optional[str] = None
     genre_dvb: Optional[int] = None
     categories: Optional[list] = None
@@ -189,6 +190,7 @@ class Program:
             # that predate v3 don't raise KeyError
             ultimate_epg_id=_safe("ultimate_epg_id"),
             schedule_id=_safe("schedule_id"),
+            epg_event_id=_safe("epg_event_id"),
             genre_description=_safe("genre_description"),
             genre_dvb=_safe("genre_dvb"),
             categories=cls._parse_json_field(_safe("categories")),
@@ -253,6 +255,8 @@ class Program:
         # response stays clean for programs from other sources.
         if self.ultimate_epg_id is not None:
             result["ultimate_epg_id"] = self.ultimate_epg_id
+        if self.epg_event_id is not None:
+            result["epg_event_id"] = self.epg_event_id
         if self.original_title is not None:
             result["original_title"] = self.original_title
         if self.genre_description is not None:
