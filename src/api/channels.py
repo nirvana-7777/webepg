@@ -51,7 +51,12 @@ def get_channel(channel_identifier):
 
 @channels_bp.route("/channels/<channel_identifier>/programs", methods=["GET"])
 def get_channel_programs(channel_identifier):
-    """Get programs for a channel within a time range."""
+    """
+    Get programs for a channel within a time range.
+
+    Query: start, end (ISO 8601, required); provider (optional provider name,
+    used to resolve provider-native channel ids unambiguously).
+    """
     try:
         epg_service = ServiceRegistry.epg_service
         assert epg_service is not None, "EPG service not initialized"
@@ -76,8 +81,19 @@ def get_channel_programs(channel_identifier):
         if start >= end:
             return jsonify({"error": "Start time must be before end time"}), 400
 
-        # Get channel by ID, name, or alias
-        channel = epg_service.get_channel_by_id_or_alias(channel_identifier)
+        # Resolve the channel. If the caller knows the provider (e.g. the UI's
+        # provider filter, which holds provider-native Ultimate Backend ids),
+        # resolve provider-scoped first: that is unambiguous and cannot be
+        # shadowed by a logical channels.id that happens to equal the id.
+        # Otherwise (or if that finds nothing) fall back to ID, name, alias.
+        provider = request.args.get("provider")
+        channel = None
+        if provider:
+            channel = epg_service.get_channel_by_provider_and_id(
+                provider, channel_identifier
+            )
+        if not channel:
+            channel = epg_service.get_channel_by_id_or_alias(channel_identifier)
         if not channel:
             return jsonify({"error": "Channel not found"}), 404
 

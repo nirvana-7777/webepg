@@ -215,6 +215,8 @@ class EPGService:
         1. Numeric ID (if identifier is a number)
         2. Channel name (exact match)
         3. Channel alias (from channel_aliases table)
+        4. Ultimate Backend channel id (via ultimate_channel_mappings), only
+           if it maps to exactly one logical channel
 
         Args:
             identifier: Channel ID (numeric), name, or alias
@@ -234,7 +236,103 @@ class EPGService:
             return channel
 
         # Try alias
-        return self.get_channel_by_alias(identifier)
+        channel = self.get_channel_by_alias(identifier)
+        if channel:
+            return channel
+
+        # Last resort: a raw Ultimate Backend channel id (what the Ultimate
+        # Backend returns in channels[].Id). Only resolved when it maps to
+        # exactly one logical channel; ambiguous ids return None.
+        return self.get_channel_by_ultimate_id(identifier)
+
+    @staticmethod
+    def get_channel_by_ultimate_id(
+        ultimate_channel_id: str, provider_name: Optional[str] = None
+    ) -> Optional[Channel]:
+        """
+        Resolve an Ultimate Backend channel id to a logical channel via
+        ultimate_channel_mappings.
+
+        Args:
+            ultimate_channel_id: The id as returned by the Ultimate Backend
+                (ultimate_channels.ultimate_channel_id).
+            provider_name: Optional ultimate_providers.provider_name. When
+                given, the lookup is scoped to that provider and cannot be
+                ambiguous across providers.
+
+        Returns:
+            Channel, or None if there is no mapping or the id is ambiguous
+            (maps to more than one logical channel). Never guesses.
+        """
+        db = get_db()
+
+        sql = """
+            SELECT DISTINCT c.id, c.name, c.display_name, c.icon_url, c.created_at
+            FROM ultimate_channel_mappings ucm
+            JOIN ultimate_channels uc ON ucm.ultimate_channel_id = uc.id
+            JOIN ultimate_providers up ON uc.ultimate_provider_id = up.id
+            JOIN channels c ON ucm.channel_id = c.id
+            WHERE uc.ultimate_channel_id = ?
+        """
+        params: list = [str(ultimate_channel_id)]
+        if provider_name is not None:
+            sql += " AND up.provider_name = ?"
+            params.append(provider_name)
+        sql += " LIMIT 2"
+
+        try:
+            rows = db.fetchall(sql, tuple(params))
+        except Exception as e:
+            logger.error(
+                f"Error fetching channel by Ultimate id '{ultimate_channel_id}': {e}"
+            )
+            raise
+
+        if len(rows) == 1:
+            return Channel.from_db_row(rows[0])
+        if len(rows) > 1:
+            logger.warning(
+                f"Ultimate channel id '{ultimate_channel_id}' is ambiguous "
+                f"(maps to several logical channels); pass a provider to disambiguate"
+            )
+        return None
+
+    @staticmethod
+    def get_channel_by_provider_and_id(
+        provider_name: str, provider_channel_id: str
+    ) -> Optional[Channel]:
+        """
+        Resolve (provider name, provider's own channel id) to a logical channel.
+
+        Branches on providers.source_type so there is no cross-source
+        ambiguity: 'ultimate_backend' providers resolve through
+        ultimate_channel_mappings, every other provider through the XMLTV
+        channel_mappings. Unknown provider names return None.
+        """
+        db = get_db()
+
+        provider = db.fetchone(
+            "SELECT source_type FROM providers WHERE name = ?", (provider_name,)
+        )
+        if not provider:
+            return None
+
+        if provider["source_type"] == "ultimate_backend":
+            return EPGService.get_channel_by_ultimate_id(
+                provider_channel_id, provider_name=provider_name
+            )
+
+        row = db.fetchone(
+            """
+            SELECT c.id, c.name, c.display_name, c.icon_url, c.created_at
+            FROM channel_mappings cm
+            JOIN providers p ON cm.provider_id = p.id
+            JOIN channels c ON cm.channel_id = c.id
+            WHERE p.name = ? AND cm.provider_channel_id = ?
+            """,
+            (provider_name, str(provider_channel_id)),
+        )
+        return Channel.from_db_row(row) if row else None
 
     @staticmethod
     def list_all_aliases() -> List[ChannelAlias]:
