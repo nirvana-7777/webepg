@@ -129,6 +129,14 @@ class UltimateBackendDetailEnrichmentService:
                 return False
 
             now = datetime.now(timezone.utc).isoformat()
+            season_number = details.get("season_number")
+            episode_number = details.get("episode_number")
+            has_episode = (
+                1 if season_number is not None and episode_number is not None else None
+            )
+            genres_list = details.get("genres") or []
+            genres_value = ",".join(genres_list) if genres_list else None
+
             db.execute(
                 """
                 UPDATE programs
@@ -141,6 +149,10 @@ class UltimateBackendDetailEnrichmentService:
                     producers       = COALESCE(?, producers),
                     presenters      = COALESCE(?, presenters),
                     production_year = COALESCE(?, production_year),
+                    season_num      = COALESCE(?, season_num),
+                    episode_num     = COALESCE(?, episode_num),
+                    has_episode_info = COALESCE(?, has_episode_info),
+                    category        = COALESCE(?, category),
                     has_details     = 1,
                     enriched_at     = ?,
                     detail_fetch_attempts = detail_fetch_attempts + 1
@@ -154,8 +166,16 @@ class UltimateBackendDetailEnrichmentService:
                     json.dumps(details["directors"]) if details.get("directors") else None,
                     json.dumps(details["writers"]) if details.get("writers") else None,
                     json.dumps(details["producers"]) if details.get("producers") else None,
-                    json.dumps(details["presenter"]) if details.get("presenter") else None,
-                    str(details["year"]) if details.get("year") else None,
+                    (
+                        json.dumps(details["presenters"])
+                        if details.get("presenters")
+                        else None
+                    ),
+                    str(details["year"]) if details.get("year") is not None else None,
+                    season_number,
+                    episode_number,
+                    has_episode,
+                    genres_value,
                     now,
                     program_id,
                 ),
