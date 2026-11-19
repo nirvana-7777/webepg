@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="better map channels" />
+    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="add season/episodes" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -190,14 +190,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00049" summary="Read EPG from backend">
-      <option name="closed" value="true" />
-      <created>1776004511023</created>
-      <option name="number" value="00049" />
-      <option name="presentableId" value="LOCAL-00049" />
-      <option name="project" value="LOCAL" />
-      <updated>1776004511023</updated>
     </task>
     <task id="LOCAL-00050" summary="Read EPG from backend">
       <option name="closed" value="true" />
@@ -583,7 +575,15 @@
       <option name="project" value="LOCAL" />
       <updated>1794577033304</updated>
     </task>
-    <option name="localTasksCounter" value="98" />
+    <task id="LOCAL-00098" summary="add season/episodes">
+      <option name="closed" value="true" />
+      <created>1794998000946</created>
+      <option name="number" value="00098" />
+      <option name="presentableId" value="LOCAL-00098" />
+      <option name="project" value="LOCAL" />
+      <updated>1794998000946</updated>
+    </task>
+    <option name="localTasksCounter" value="99" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -622,7 +622,8 @@
     <MESSAGE value="Bump workflow actions" />
     <MESSAGE value="Add epg_event_id" />
     <MESSAGE value="better map channels" />
-    <option name="LAST_COMMIT_MESSAGE" value="better map channels" />
+    <MESSAGE value="add season/episodes" />
+    <option name="LAST_COMMIT_MESSAGE" value="add season/episodes" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/webepg$main.coverage" NAME="main Coverage Results" MODIFIED="1766784290681" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

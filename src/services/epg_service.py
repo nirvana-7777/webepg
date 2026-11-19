@@ -44,7 +44,12 @@ class EPGService:
                 id, channel_id, provider_id, start_time, end_time,
                 title, subtitle, description, category, episode_num,
                 rating, actors, directors, presenters, writers,
-                producers, icon_url, production_year, country, created_at
+                producers, icon_url, production_year, country, language,
+                created_at,
+                ultimate_epg_id, schedule_id, epg_event_id,
+                genre_description, genre_dvb, categories,
+                season_num, director, producer, year, star_rating,
+                thumbnail_url, original_title, epg_flags, has_episode_info
             FROM programs
             WHERE channel_id = ?
               AND start_time < ?
