@@ -4,13 +4,20 @@ EPG service for querying program data.
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Dict, Tuple
+from typing import Any, List, Optional, Dict, Tuple
 
 from ..database.connection import get_db
 from ..database.models import Channel, ChannelAlias, Program, Provider
 from ..services.provider_service import ProviderService
 
 logger = logging.getLogger(__name__)
+
+# Two snapshots of the same airing are treated as duplicates only if their
+# start times differ by at most this much (and their time ranges overlap).
+# TODO: make configurable (e.g. per provider) if provider-specific drift shows up.
+_DEDUP_WINDOW = timedelta(minutes=5)
+
+_UTC_MIN = datetime.min.replace(tzinfo=timezone.utc)
 
 
 class EPGService:
@@ -24,6 +31,169 @@ class EPGService:
         """Get current UTC datetime as timezone-aware."""
         return datetime.now(timezone.utc)
 
+    # ------------------------------------------------------------------
+    # De-duplication helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _dedup_field(item: Any, name: str) -> Any:
+        """Read a field from either a Program object or a plain dict row."""
+        if isinstance(item, dict):
+            return item.get(name)
+        return getattr(item, name, None)
+
+    @staticmethod
+    def _dedup_as_utc(value: Any) -> Optional[datetime]:
+        """
+        Normalise a datetime / ISO string / None to an aware UTC datetime.
+
+        Naive values are assumed to be UTC (that is what the importers
+        store). Unparseable values become None instead of raising, so a
+        single bad row can never break an EPG response.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        if not isinstance(value, datetime):
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    @staticmethod
+    def _dedup_text(value: Any) -> str:
+        """Case/whitespace-insensitive text for the grouping key."""
+        if value is None:
+            return ""
+        return " ".join(str(value).split()).casefold()
+
+    @classmethod
+    def _deduplicate_programs(cls, programs: List[Any]) -> List[Any]:
+        """
+        Collapse fuzzy duplicate programs, keeping the latest version of each.
+
+        The Ultimate Backend feed can emit the same airing twice with slightly
+        shifted start/end times (2-3 min) and *different* ultimate_epg_id
+        values, so a unique index or upsert cannot catch it. Two snapshots of
+        the same program therefore coexist in `programs`, and both would be
+        returned to the client.
+
+        This is an output-side filter. It does not delete anything; physical
+        cleanup stays with POST /admin/cleanup. It accepts Program objects
+        or dict rows (XMLTV export) and returns the surviving items in their
+        original order.
+
+        Two rows are the same airing when ALL of these hold:
+          - same channel_id + provider_id (never merge across sources)
+          - same normalised title + subtitle
+          - start times within _DEDUP_WINDOW of each other AND the time
+            ranges overlap
+          - season_num / episode_num do not conflict. An empty value on
+            either side is a wildcard (one snapshot may lack episode
+            metadata); two different non-empty values keep the rows apart.
+
+        Time proximity (rather than calendar date) is deliberate: genuine
+        repeats of the same program on the same day (news, weather,
+        teleshopping) are hours apart or back-to-back, so they are kept,
+        while shifted snapshots, including ones straddling midnight, are
+        collapsed.
+
+        Among duplicates the row with the latest created_at wins (ties are
+        broken by the higher id). Rows without a usable start_time cannot be
+        compared and are always kept.
+        """
+        if not programs or len(programs) < 2:
+            return programs
+
+        field = cls._dedup_field
+        as_utc = cls._dedup_as_utc
+        text = cls._dedup_text
+
+        groups: Dict[tuple, List[int]] = {}
+        for idx, p in enumerate(programs):
+            key = (
+                field(p, "channel_id"),
+                field(p, "provider_id"),
+                text(field(p, "title")),
+                text(field(p, "subtitle")),
+            )
+            groups.setdefault(key, []).append(idx)
+
+        keep: set = set()
+
+        def _rank(idx: int) -> tuple:
+            p = programs[idx]
+            created = as_utc(field(p, "created_at")) or _UTC_MIN
+            pid = field(p, "id")
+            return (created, pid if isinstance(pid, int) else 0, idx)
+
+        for indices in groups.values():
+            if len(indices) == 1:
+                keep.add(indices[0])
+                continue
+
+            timed: List[Tuple[datetime, Optional[datetime], int]] = []
+            for idx in indices:
+                start = as_utc(field(programs[idx], "start_time"))
+                if start is None:
+                    keep.add(idx)  # cannot compare, never drop
+                    continue
+                timed.append((start, as_utc(field(programs[idx], "end_time")), idx))
+
+            timed.sort(key=lambda t: (t[0], t[2]))
+
+            clusters: List[Dict[str, Any]] = []
+            for start, end, idx in timed:
+                season = text(field(programs[idx], "season_num"))
+                episode = text(field(programs[idx], "episode_num"))
+
+                target: Optional[Dict[str, Any]] = None
+                for c in reversed(clusters):
+                    if start - c["anchor"] > _DEDUP_WINDOW:
+                        break  # anchors ascend; all earlier ones are further away
+                    if c["end"] is not None and start >= c["end"]:
+                        continue  # no overlap -> distinct (e.g. back-to-back) airing
+                    if c["season"] and season and c["season"] != season:
+                        continue
+                    if c["episode"] and episode and c["episode"] != episode:
+                        continue
+                    target = c
+                    break
+
+                if target is None:
+                    clusters.append(
+                        {
+                            "anchor": start,
+                            "end": end,
+                            "season": season,
+                            "episode": episode,
+                            "members": [idx],
+                        }
+                    )
+                else:
+                    target["members"].append(idx)
+                    if end is not None and (target["end"] is None or end > target["end"]):
+                        target["end"] = end
+                    target["season"] = target["season"] or season
+                    target["episode"] = target["episode"] or episode
+
+            for c in clusters:
+                keep.add(max(c["members"], key=_rank))
+
+        deduped = [p for i, p in enumerate(programs) if i in keep]
+
+        if len(deduped) != len(programs):
+            logger.debug(
+                f"Deduplicated {len(programs)} programs -> {len(deduped)} "
+                f"(collapsed {len(programs) - len(deduped)} fuzzy duplicates)"
+            )
+
+        return deduped
+
     @staticmethod
     def get_programs(channel_id: int, start: datetime, end: datetime) -> List[Program]:
         """
@@ -35,7 +205,8 @@ class EPGService:
             end: End of time range
 
         Returns:
-            List of Program objects
+            List of Program objects (fuzzy duplicates collapsed to the
+            latest imported version of each airing)
         """
         db = get_db()
 
@@ -64,6 +235,8 @@ class EPGService:
         try:
             rows = db.fetchall(sql, (channel_id, end_str, start_str))
             programs = [Program.from_db_row(row) for row in rows]
+
+            programs = EPGService._deduplicate_programs(programs)
 
             logger.debug(
                 f"Found {len(programs)} programs for channel {channel_id} "
@@ -771,7 +944,8 @@ class EPGService:
             end_time: Optional end time filter (default: 7 days from now)
 
         Returns:
-            Tuple of (channels list, programs list)
+            Tuple of (channels list, programs list). Fuzzy duplicate
+            programs are collapsed, same as in get_programs().
         """
         db = get_db()
 
@@ -785,7 +959,6 @@ class EPGService:
 
         # Set default time range if not specified, preferring provider config if available
         if start_time is None or end_time is None:
-            db = get_db()
             epg_config = db.fetchone(
                 "SELECT future_days, past_days FROM provider_epg_config WHERE provider_id = ?",
                 (provider_id,),
@@ -817,14 +990,14 @@ class EPGService:
         channel_identifier_map: Dict[int, str] = {
             channel.id: str(channel.id) for channel in channels
         }
-        channel_placeholders = ",".join(["?"] * len(channel_ids))
+        placeholders = ",".join(["?"] * len(channel_ids))
 
         if source_type == "xmltv":
             rows = db.fetchall(
                 f"""
                 SELECT channel_id, provider_channel_id
                 FROM channel_mappings
-                WHERE provider_id = ? AND channel_id IN ({channel_placeholders})
+                WHERE provider_id = ? AND channel_id IN ({placeholders})
                 """,
                 tuple([provider_id] + channel_ids),
             )
@@ -841,7 +1014,7 @@ class EPGService:
                     SELECT ucm.channel_id, uc.ultimate_channel_id
                     FROM ultimate_channels uc
                     JOIN ultimate_channel_mappings ucm ON uc.id = ucm.ultimate_channel_id
-                    WHERE uc.ultimate_provider_id = ? AND ucm.channel_id IN ({channel_placeholders})
+                    WHERE uc.ultimate_provider_id = ? AND ucm.channel_id IN ({placeholders})
                     """,
                     tuple([ultimate_provider_id] + channel_ids),
                 )
@@ -850,8 +1023,6 @@ class EPGService:
                         channel_identifier_map[row["channel_id"]] = row["ultimate_channel_id"]
 
         # Get programs for these channels
-        placeholders = ",".join(["?"] * len(channel_ids))
-
         sql = f"""
             SELECT 
                 p.id, p.channel_id, p.provider_id, p.start_time, p.end_time,
@@ -890,6 +1061,8 @@ class EPGService:
                     program_dict["end_time"]
                 )
             programs.append(program_dict)
+
+        programs = self._deduplicate_programs(programs)
 
         # Convert channels to dict format for serializer
         channel_dicts = [
