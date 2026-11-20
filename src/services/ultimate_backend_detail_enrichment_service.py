@@ -137,6 +137,17 @@ class UltimateBackendDetailEnrichmentService:
             genres_list = details.get("genres") or []
             genres_value = ",".join(genres_list) if genres_list else None
 
+            # Prefer cast_details (carries character_name) when present;
+            # fall back to the flat cast list for older payloads.
+            cast_payload = details.get("cast_details") or details.get("cast")
+
+            # country_of_origin comes back as a list; the column is scalar.
+            country_list = details.get("country_of_origin") or []
+            country_value = country_list[0] if country_list else None
+
+            audio_langs = details.get("audio_languages") or []
+            subtitle_langs = details.get("subtitle_languages") or []
+
             db.execute(
                 """
                 UPDATE programs
@@ -153,6 +164,11 @@ class UltimateBackendDetailEnrichmentService:
                     episode_num     = COALESCE(?, episode_num),
                     has_episode_info = COALESCE(?, has_episode_info),
                     category        = COALESCE(?, category),
+                    country         = COALESCE(?, country),
+                    series_id       = COALESCE(?, series_id),
+                    is_adult        = COALESCE(?, is_adult),
+                    audio_languages = COALESCE(?, audio_languages),
+                    subtitle_languages = COALESCE(?, subtitle_languages),
                     has_details     = 1,
                     enriched_at     = ?,
                     detail_fetch_attempts = detail_fetch_attempts + 1
@@ -162,7 +178,7 @@ class UltimateBackendDetailEnrichmentService:
                     details.get("description"),
                     details.get("episode_name"),
                     details.get("icon"),
-                    json.dumps(details["cast"]) if details.get("cast") else None,
+                    json.dumps(cast_payload) if cast_payload else None,
                     json.dumps(details["directors"]) if details.get("directors") else None,
                     json.dumps(details["writers"]) if details.get("writers") else None,
                     json.dumps(details["producers"]) if details.get("producers") else None,
@@ -176,6 +192,15 @@ class UltimateBackendDetailEnrichmentService:
                     episode_number,
                     has_episode,
                     genres_value,
+                    country_value,
+                    details.get("series_id"),
+                    (
+                        1 if details.get("is_adult") is True
+                        else 0 if details.get("is_adult") is False
+                        else None
+                    ),
+                    json.dumps(audio_langs) if audio_langs else None,
+                    json.dumps(subtitle_langs) if subtitle_langs else None,
                     now,
                     program_id,
                 ),

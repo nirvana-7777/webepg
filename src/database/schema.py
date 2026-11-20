@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class SchemaManager:
     """Manages database schema creation and migrations."""
 
-    SCHEMA_VERSION = 9
+    SCHEMA_VERSION = 10
     # The version that SCHEMA_SQL represents (the initial/baseline schema).
     # Migrations run from this version up to SCHEMA_VERSION on fresh installs,
     # so SCHEMA_SQL should stay a faithful "version 1" snapshot -- do not fold
@@ -365,6 +365,19 @@ class SchemaManager:
             cls._update_schema_version(conn, 9)
             if to_version > 9:
                 cls._migrate_database(conn, 9, to_version)
+            return
+
+        # Migration: version 9 -> 10
+        if from_version == 9 and to_version >= 10:
+            logger.info("Applying migration 9 -> 10")
+            from ..database.migrations.v10_detail_enrichment_fields import (
+                migrate_v9_to_v10,
+            )
+
+            migrate_v9_to_v10(conn)
+            cls._update_schema_version(conn, 10)
+            if to_version > 10:
+                cls._migrate_database(conn, 10, to_version)
             return
 
         # If we get here, no migration path was found

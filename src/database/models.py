@@ -133,6 +133,11 @@ class Program:
     production_year: Optional[str] = None
     country: Optional[str] = None
     language: Optional[str] = None
+    # Detail-enrichment fields (populated from get_program_details)
+    series_id: Optional[str] = None
+    is_adult: Optional[bool] = None
+    audio_languages: Optional[list] = None
+    subtitle_languages: Optional[list] = None
     # Ultimate Backend fields (NULL for other sources)
     ultimate_epg_id: Optional[int] = None
     schedule_id: Optional[str] = None
@@ -186,6 +191,12 @@ class Program:
             production_year=_safe("production_year"),
             country=_safe("country"),
             language=_safe("language"),
+            series_id=_safe("series_id"),
+            is_adult=(
+                bool(_safe("is_adult")) if _safe("is_adult") is not None else None
+            ),
+            audio_languages=cls._parse_json_field(_safe("audio_languages")),
+            subtitle_languages=cls._parse_json_field(_safe("subtitle_languages")),
             # Ultimate Backend fields — use _safe() so rows from other sources
             # that predate v3 don't raise KeyError
             ultimate_epg_id=_safe("ultimate_epg_id"),
@@ -250,6 +261,17 @@ class Program:
             "language": self.language,
             "created_at": to_utc_isoformat(self.created_at),
         }
+
+        # Detail-enrichment fields: emit only when present so the response
+        # stays clean for non-enriched programs.
+        if self.series_id is not None:
+            result["series_id"] = self.series_id
+        if self.is_adult is not None:
+            result["is_adult"] = self.is_adult
+        if self.audio_languages is not None:
+            result["audio_languages"] = self.audio_languages
+        if self.subtitle_languages is not None:
+            result["subtitle_languages"] = self.subtitle_languages
 
         # Include Ultimate Backend fields only when present so the API
         # response stays clean for programs from other sources.
