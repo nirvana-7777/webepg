@@ -4,7 +4,7 @@ Background job scheduler for EPG service.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from threading import Thread
 from typing import Optional
 
@@ -35,6 +35,9 @@ class JobScheduler:
         self.scheduler = BackgroundScheduler(timezone=config.get("timezone", "UTC"))
         self.import_service = ImportService()
         self.cleanup_service = CleanupService()
+        # Outcome of the most recent deduplication run, exposed via
+        # GET /admin/cleanup/status so an abort is not just a log line.
+        self.last_dedup_result: Optional[dict] = None
 
         self.ultimate_enabled = config.get("ultimate_backend", {}).get("enabled", False)
         self.ultimate_client = None
@@ -140,14 +143,35 @@ class JobScheduler:
     def _run_deduplication_job(self):
         """Run deduplication to remove fuzzy duplicates."""
         logger.info("Starting scheduled deduplication job")
+        result = {"at": datetime.now(timezone.utc).isoformat(), "status": "error"}
         try:
-            stats = self.cleanup_service.deduplicate_programs()
+            dedup_config = self.config.get("deduplication", {})
+            stats = self.cleanup_service.deduplicate_programs(
+                time_tolerance_minutes=dedup_config.get("time_tolerance_minutes", 5)
+            )
+            result["duplicates_removed"] = stats.get("duplicates_removed", 0)
+            result["duplicate_groups"] = stats.get("duplicate_groups", 0)
+
+            if stats.get("aborted"):
+                result["status"] = "aborted"
+                result["message"] = stats.get("abort_reason")
+                logger.error(
+                    f"Deduplication aborted by safety limit: {stats.get('abort_reason')} "
+                    f"Inspect with DELETE /admin/duplicates?dry_run=true, then run "
+                    f"DELETE /admin/duplicates?force=true if the result looks right."
+                )
+                return
+
+            result["status"] = "ok"
             logger.info(
                 f"Deduplication completed: {stats.get('duplicates_removed', 0)} duplicates removed "
                 f"from {stats.get('duplicate_groups', 0)} groups"
             )
         except Exception as e:
+            result["message"] = str(e)
             logger.error(f"Deduplication job failed: {e}", exc_info=True)
+        finally:
+            self.last_dedup_result = result
 
     # ------------------------------------------------------------------
     # Ultimate Backend jobs
@@ -416,15 +440,21 @@ class JobScheduler:
         )
         logger.info(f"Scheduled daily XMLTV import at {import_time}")
 
-        # Weekly deduplication (Sunday at 5:00 AM - after cleanup)
-        self.scheduler.add_job(
-            self._run_deduplication_job,
-            trigger=CronTrigger(day_of_week=6, hour=5, minute=0),
-            id="weekly_deduplication",
-            name="Weekly Deduplication",
-            replace_existing=True,
-        )
-        logger.info("Scheduled weekly deduplication on Sunday at 5:00 AM")
+        # Daily deduplication (default 05:00, after the imports and before the
+        # nightly export). NOTE: the job id intentionally stays
+        # "weekly_deduplication" so anything that looks it up by id keeps working.
+        dedup_config = self.config.get("deduplication", {})
+        if dedup_config.get("enabled", True):
+            dedup_time = dedup_config.get("time", "05:00")
+            dedup_hour, dedup_minute = map(int, dedup_time.split(":"))
+            self.scheduler.add_job(
+                self._run_deduplication_job,
+                trigger=CronTrigger(hour=dedup_hour, minute=dedup_minute),
+                id="weekly_deduplication",
+                name="Daily Deduplication",
+                replace_existing=True,
+            )
+            logger.info(f"Scheduled daily deduplication at {dedup_time}")
 
         # Nightly EPG export generation - READ FROM NESTED CONFIG
         # Default pushed to 09:00 (was 05:00) so it runs after the detail

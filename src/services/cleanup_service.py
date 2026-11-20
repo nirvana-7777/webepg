@@ -3,11 +3,150 @@ Cleanup service for managing data retention.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..database.connection import get_db
 
 logger = logging.getLogger(__name__)
+
+_UTC_MIN = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _parse_ts(value: Any) -> Optional[datetime]:
+    """
+    Parse a stored timestamp into an aware UTC datetime.
+
+    Handles the formats found in the database ("2026-11-18 23:30:46",
+    "2026-11-18T23:30:46.711966Z", "...+00:00"). Naive values are assumed to
+    be UTC. Unparseable values return None; callers must never delete rows
+    they cannot compare.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        if text[-1] in ("Z", "z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _norm_text(value: Any) -> str:
+    """Case/whitespace-insensitive text for matching."""
+    if value is None:
+        return ""
+    return " ".join(str(value).split()).casefold()
+
+
+def _rank(row: Any) -> tuple:
+    """Survivor ranking: newest created_at wins, ties broken by higher id."""
+    return (_parse_ts(row["created_at"]) or _UTC_MIN, row["id"])
+
+
+def _find_duplicate_clusters(
+    rows: List[Any], window: timedelta
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Find fuzzy duplicate clusters among the programs of ONE channel.
+
+    Two rows are the same airing when ALL of these hold:
+      - same provider_id (never merge across sources)
+      - same normalised title and subtitle (exact match, not substring)
+      - start times within `window` of the cluster's first start
+      - their time ranges overlap (back-to-back airings are distinct)
+      - season_num / episode_num do not conflict. An empty value on either
+        side is a wildcard (one snapshot may lack episode metadata); two
+        different non-empty values keep the rows apart.
+
+    Rows with an empty title or an unparseable start_time are never matched
+    (and therefore never deleted).
+
+    Returns:
+        (clusters, skipped) where each cluster is
+        {"keep": row, "remove": [row, ...]} for clusters with 2+ members,
+        and `skipped` counts rows that could not be considered.
+    """
+    groups: Dict[tuple, List[Tuple[datetime, Optional[datetime], Any]]] = {}
+    skipped = 0
+
+    for row in rows:
+        title = _norm_text(row["title"])
+        start = _parse_ts(row["start_time"])
+        if not title or start is None:
+            skipped += 1
+            continue
+        key = (
+            row["channel_id"],
+            row["provider_id"],
+            title,
+            _norm_text(row["subtitle"]),
+        )
+        groups.setdefault(key, []).append((start, _parse_ts(row["end_time"]), row))
+
+    result: List[Dict[str, Any]] = []
+
+    for entries in groups.values():
+        if len(entries) < 2:
+            continue
+
+        entries.sort(key=lambda e: (e[0], e[2]["id"]))
+
+        clusters: List[Dict[str, Any]] = []
+        for start, end, row in entries:
+            season = _norm_text(row["season_num"])
+            episode = _norm_text(row["episode_num"])
+
+            target: Optional[Dict[str, Any]] = None
+            for c in reversed(clusters):
+                if start - c["anchor"] > window:
+                    break  # anchors ascend; all earlier ones are further away
+                if c["end"] is not None and start >= c["end"]:
+                    continue  # no overlap -> distinct (e.g. back-to-back) airing
+                if c["season"] and season and c["season"] != season:
+                    continue
+                if c["episode"] and episode and c["episode"] != episode:
+                    continue
+                target = c
+                break
+
+            if target is None:
+                clusters.append(
+                    {
+                        "anchor": start,
+                        "end": end,
+                        "season": season,
+                        "episode": episode,
+                        "rows": [row],
+                    }
+                )
+            else:
+                target["rows"].append(row)
+                if end is not None and (target["end"] is None or end > target["end"]):
+                    target["end"] = end
+                target["season"] = target["season"] or season
+                target["episode"] = target["episode"] or episode
+
+        for c in clusters:
+            if len(c["rows"]) > 1:
+                keep = max(c["rows"], key=_rank)
+                result.append(
+                    {
+                        "keep": keep,
+                        "remove": [r for r in c["rows"] if r["id"] != keep["id"]],
+                    }
+                )
+
+    return result, skipped
 
 
 class CleanupService:
@@ -27,7 +166,7 @@ class CleanupService:
         """
         db = get_db()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         past_cutoff = now - timedelta(days=retention_days)
         future_cutoff = now + timedelta(days=retention_days)
 
@@ -36,11 +175,13 @@ class CleanupService:
             f"{past_cutoff.isoformat()} to {future_cutoff.isoformat()}"
         )
 
+        # datetime() normalises mixed stored formats (space/'T' separator,
+        # 'Z' / offset suffix) so the comparison is chronological, not textual.
         sql = """
-              DELETE \
+              DELETE
               FROM programs
-              WHERE start_time < ? \
-                 OR start_time > ? \
+              WHERE datetime(start_time) < datetime(?)
+                 OR datetime(start_time) > datetime(?)
               """
 
         try:
@@ -75,13 +216,13 @@ class CleanupService:
         db = get_db()
 
         sql = """
-              DELETE \
+              DELETE
               FROM import_log
-              WHERE id NOT IN (SELECT id \
-                               FROM import_log \
+              WHERE id NOT IN (SELECT id
+                               FROM import_log
                                ORDER BY started_at DESC
                   LIMIT ?
-                  ) \
+                  )
               """
 
         try:
@@ -98,136 +239,148 @@ class CleanupService:
             logger.error(f"Error cleaning up import logs: {e}")
             raise
 
-    def deduplicate_programs(self, time_tolerance_minutes: int = 5) -> dict:
+    def deduplicate_programs(
+        self,
+        time_tolerance_minutes: int = 5,
+        dry_run: bool = False,
+        force: bool = False,
+        max_delete_fraction: float = 0.10,
+    ) -> dict:
         """
-        Find and remove fuzzy duplicate programs.
+        Find and remove fuzzy duplicate programs, keeping the newest snapshot.
+
+        The matching rules are documented on _find_duplicate_clusters(). The
+        work is done channel by channel in Python (O(n log n) per channel)
+        instead of a SQL self-join, which was quadratic and compared
+        timestamps as text.
 
         Args:
-            time_tolerance_minutes: Consider programs within this time window as potential duplicates
+            time_tolerance_minutes: Max start-time difference between snapshots
+            dry_run: Report what would be removed; delete nothing
+            force: Skip the safety limit below
+            max_delete_fraction: Abort (delete nothing) if more than this
+                fraction of all scanned rows would be deleted. A healthy
+                daily run removes a tiny fraction; a huge number means the
+                matching is wrong for some data. The first run after a long
+                gap may legitimately exceed it: inspect a dry run, then force.
 
         Returns:
-            Dictionary with deduplication statistics
+            Dictionary with deduplication statistics. Keys: duplicate_groups,
+            duplicates_removed, rows_scanned, rows_skipped, dry_run, and
+            would_remove_count / would_remove_ids / would_remove_ids_truncated /
+            examples (the id list and examples are display-capped; the count is
+            not; all present in dry-run mode when duplicates exist). If the safety limit trips: aborted=True and
+            abort_reason.
         """
-        db = get_db()
+        if time_tolerance_minutes < 0:
+            raise ValueError("time_tolerance_minutes must be >= 0")
 
-        stats = {"duplicate_groups": 0, "duplicates_removed": 0}
+        db = get_db()
+        window = timedelta(minutes=time_tolerance_minutes)
+
+        stats: Dict[str, Any] = {
+            "duplicate_groups": 0,
+            "duplicates_removed": 0,
+            "rows_scanned": 0,
+            "rows_skipped": 0,
+            "dry_run": dry_run,
+        }
+
+        select_sql = """
+            SELECT id, channel_id, provider_id, title, subtitle,
+                   season_num, episode_num, start_time, end_time, created_at
+            FROM programs
+            WHERE channel_id = ?
+        """
 
         try:
-            # SIMPLER APPROACH: Find duplicates and delete them one by one
+            channel_rows = db.fetchall("SELECT DISTINCT channel_id FROM programs")
 
-            # Step 1: Find all potential duplicate pairs
-            find_duplicates_sql = """
-                                  SELECT p1.id                                                              as older_id, \
-                                         p2.id                                                              as newer_id, \
-                                         p1.channel_id, \
-                                         p1.title, \
-                                         p1.start_time                                                      as time1, \
-                                         p2.start_time                                                      as time2, \
-                                         ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) as time_diff, \
-                                         p1.created_at                                                      as created1, \
-                                         p2.created_at                                                      as created2
-                                  FROM programs p1
-                                           JOIN programs p2 ON p1.channel_id = p2.channel_id
-                                      AND p1.provider_id = p2.provider_id
-                                      AND p1.id < p2.id -- Ensure we don't compare the same pair twice
-                                      AND ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) < ?
-                                  WHERE (p1.title LIKE '%' || p2.title || '%' OR p2.title LIKE '%' || p1.title || '%')
-                                    AND p1.title IS NOT NULL
-                                    AND p2.title IS NOT NULL
-                                    AND p1.created_at < p2.created_at -- p1 is older than p2
-                                  ORDER BY p1.channel_id, p1.start_time, time_diff \
-                                  """
+            all_clusters: List[Dict[str, Any]] = []
+            for channel_row in channel_rows:
+                rows = db.fetchall(select_sql, (channel_row[0],))
+                stats["rows_scanned"] += len(rows)
+                clusters, skipped = _find_duplicate_clusters(rows, window)
+                stats["rows_skipped"] += skipped
+                all_clusters.extend(clusters)
 
-            time_tolerance_seconds = time_tolerance_minutes * 60
-
-            duplicate_pairs = db.fetchall(
-                find_duplicates_sql, (time_tolerance_seconds,)
+            ids_to_delete = sorted(
+                {r["id"] for c in all_clusters for r in c["remove"]}
             )
+            stats["duplicate_groups"] = len(all_clusters)
+            stats["would_remove_count"] = len(ids_to_delete)
 
-            if not duplicate_pairs:
+            for c in all_clusters:
+                for r in c["remove"]:
+                    logger.debug(
+                        f"Duplicate: removing ID {r['id']} (created {r['created_at']}), "
+                        f"keeping ID {c['keep']['id']} (created {c['keep']['created_at']}) "
+                        f"| channel {r['channel_id']} | {r['title']} | start {r['start_time']}"
+                    )
+
+            if not ids_to_delete:
                 logger.info("No fuzzy duplicates found")
                 return stats
 
-            # Step 2: Collect IDs to delete (always delete the OLDER one)
-            ids_to_delete = set()
-            processed_pairs = 0
-
-            for row in duplicate_pairs:
-                (
-                    older_id,
-                    newer_id,
-                    channel_id,
-                    title,
-                    time1,
-                    time2,
-                    time_diff,
-                    created1,
-                    created2,
-                ) = row
-
-                # Add the older ID to deletion list
-                ids_to_delete.add(older_id)
-                processed_pairs += 1
-
-                logger.debug(
-                    f"Marking duplicate for deletion: ID {older_id} (created: {created1}) "
-                    f"-> Keeping ID {newer_id} (created: {created2}) | "
-                    f"Title: {title} | Time diff: {time_diff}s"
+            if dry_run:
+                # Display cap only: would_remove_count above is the full count.
+                stats["would_remove_ids"] = ids_to_delete[:100]
+                stats["would_remove_ids_truncated"] = len(ids_to_delete) > 100
+                stats["examples"] = [
+                    {
+                        "channel_id": c["keep"]["channel_id"],
+                        "title": c["keep"]["title"],
+                        "start_time": c["keep"]["start_time"],
+                        "kept": {
+                            "id": c["keep"]["id"],
+                            "start_time": c["keep"]["start_time"],
+                            "created_at": c["keep"]["created_at"],
+                        },
+                        "removed": [
+                            {
+                                "id": r["id"],
+                                "start_time": r["start_time"],
+                                "created_at": r["created_at"],
+                            }
+                            for r in c["remove"]
+                        ],
+                    }
+                    for c in all_clusters[:20]
+                ]
+                logger.info(
+                    f"DRY RUN: would remove {len(ids_to_delete)} duplicate programs "
+                    f"from {len(all_clusters)} groups"
                 )
-
-            stats["duplicate_groups"] = processed_pairs
-
-            if not ids_to_delete:
                 return stats
 
-            # Step 3: Delete the marked programs
-            delete_ids = list(ids_to_delete)
+            fraction = len(ids_to_delete) / max(stats["rows_scanned"], 1)
+            if not force and fraction > max_delete_fraction:
+                stats["aborted"] = True
+                stats["abort_reason"] = (
+                    f"Would delete {len(ids_to_delete)} of {stats['rows_scanned']} "
+                    f"programs ({fraction:.1%}), above the {max_delete_fraction:.0%} "
+                    f"safety limit. Nothing was deleted."
+                )
+                logger.error(stats["abort_reason"])
+                return stats
 
-            # Delete in batches to avoid SQL parameter limits
-            batch_size = 100
+            # Delete in batches to stay below SQLite's variable limit
+            batch_size = 500
             total_deleted = 0
-
-            for i in range(0, len(delete_ids), batch_size):
-                batch = delete_ids[i : i + batch_size]
+            for i in range(0, len(ids_to_delete), batch_size):
+                batch = ids_to_delete[i : i + batch_size]
                 placeholders = ",".join(["?"] * len(batch))
-
-                delete_sql = f"""
-                DELETE FROM programs
-                WHERE id IN ({placeholders})
-                """
-
                 with db.get_cursor() as cursor:
-                    cursor.execute(delete_sql, batch)
-                    deleted_in_batch = cursor.rowcount
-                    total_deleted += deleted_in_batch
+                    cursor.execute(
+                        f"DELETE FROM programs WHERE id IN ({placeholders})", batch
+                    )
+                    total_deleted += cursor.rowcount
 
             stats["duplicates_removed"] = total_deleted
-
-            if total_deleted > 0:
-                logger.info(
-                    f"Fuzzy deduplication removed {total_deleted} duplicate programs "
-                    f"from {processed_pairs} duplicate pairs"
-                )
-
-            # Step 4: Also clean up any remaining exact duplicates (same channel, start, end, title)
-            # This catches any duplicates that the fuzzy logic might have missed
-            exact_duplicates_sql = """
-                                   DELETE \
-                                   FROM programs
-                                   WHERE id NOT IN (SELECT MIN(id) \
-                                                    FROM programs \
-                                                    GROUP BY channel_id, start_time, end_time, title) \
-                                   """
-
-            with db.get_cursor() as cursor:
-                cursor.execute(exact_duplicates_sql)
-                exact_deleted = cursor.rowcount
-
-            if exact_deleted > 0:
-                stats["exact_duplicates_removed"] = exact_deleted
-                stats["duplicates_removed"] += exact_deleted
-                logger.info(f"Removed {exact_deleted} exact duplicates")
-
+            logger.info(
+                f"Fuzzy deduplication removed {total_deleted} duplicate programs "
+                f"from {len(all_clusters)} groups"
+            )
             return stats
 
         except Exception as e:

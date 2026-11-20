@@ -12,6 +12,19 @@ logger = logging.getLogger(__name__)
 admin_bp = Blueprint("admin", __name__)
 
 
+def _arg_bool(name: str, default: bool = False) -> bool:
+    """
+    Parse a boolean query parameter.
+
+    Do NOT use request.args.get(..., type=bool): bool("false") is True, so
+    ?flag=false would silently mean "true".
+    """
+    raw = request.args.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 @admin_bp.route("/import/trigger", methods=["POST"])
 def trigger_import():
     """Manually trigger import for all providers."""
@@ -72,22 +85,56 @@ def import_status():
 @admin_bp.route("/admin/duplicates", methods=["DELETE"])
 def remove_duplicates():
     """
-    Remove duplicate programs from the database.
+    Remove fuzzy duplicate programs from the database.
 
-    This operation finds programs with the same channel, start time, end time, and title,
-    and removes all but the newest version of each duplicate.
+    Two programs are duplicates when they share channel, provider, title and
+    subtitle, start within the time tolerance of each other, overlap in time
+    and have no conflicting season/episode. The newest snapshot is kept.
+
+    Query params:
+        dry_run: bool - Report what would be removed, delete nothing
+                 (default: false)
+        time_tolerance: int - Start-time tolerance in minutes (default: 5)
+        force: bool - Bypass the safety limit that aborts when more than 10%
+                of all rows would be deleted (default: false)
     """
     try:
         from ..services.cleanup_service import CleanupService
 
+        dry_run = _arg_bool("dry_run", False)
+        force = _arg_bool("force", False)
+        time_tolerance = request.args.get("time_tolerance", default=5, type=int)
+        if time_tolerance is None or not 0 <= time_tolerance <= 60:
+            return jsonify({"error": "time_tolerance must be between 0 and 60"}), 400
+
         cleanup_service = CleanupService()
-        stats = cleanup_service.deduplicate_programs()
+        stats = cleanup_service.deduplicate_programs(
+            time_tolerance_minutes=time_tolerance, dry_run=dry_run, force=force
+        )
+
+        if stats.get("aborted"):
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "dry_run": dry_run,
+                        "message": stats.get("abort_reason"),
+                        "stats": stats,
+                    }
+                ),
+                409,
+            )
 
         return (
             jsonify(
                 {
                     "success": True,
-                    "message": "Duplicate programs removed successfully",
+                    "dry_run": dry_run,
+                    "message": (
+                        "Dry run: no programs were deleted"
+                        if dry_run
+                        else "Duplicate programs removed successfully"
+                    ),
                     "stats": stats,
                 }
             ),
@@ -95,157 +142,48 @@ def remove_duplicates():
         )
 
     except Exception as e:
-        logger.error(f"Error removing duplicates: {e}")
+        logger.error(f"Error removing duplicates: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
 @admin_bp.route("/admin/duplicates/preview", methods=["GET"])
 def preview_duplicates():
     """
-    Preview fuzzy duplicate programs without removing them.
+    Preview which duplicate programs would be removed, without removing any.
+
+    Runs exactly the same matching as DELETE /admin/duplicates (as a dry run),
+    so the preview cannot drift from what the real job does.
+
+    Query params:
+        time_tolerance: int - Start-time tolerance in minutes (default: 5)
     """
     try:
-        from ..database.connection import get_db
+        from ..services.cleanup_service import CleanupService
 
-        db = get_db()
-
-        # Get time tolerance from query parameter (default 5 minutes)
         time_tolerance = request.args.get("time_tolerance", default=5, type=int)
+        if time_tolerance is None or not 0 <= time_tolerance <= 60:
+            return jsonify({"error": "time_tolerance must be between 0 and 60"}), 400
 
-        find_potential_duplicates_sql = """
-                                        WITH potential_duplicates AS (SELECT p1.id                                                              as id1, \
-                                                                             p2.id                                                              as id2, \
-                                                                             p1.channel_id, \
-                                                                             p1.title                                                           as title1, \
-                                                                             p2.title                                                           as title2, \
-                                                                             p1.start_time, \
-                                                                             p1.end_time, \
-                                                                             p2.start_time                                                      as start_time2, \
-                                                                             p2.end_time                                                        as end_time2, \
-                                                                             p1.created_at                                                      as created1, \
-                                                                             p2.created_at                                                      as created2, \
-                                                                             ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) as time_diff_seconds, \
-                                                                             CASE \
-                                                                                 WHEN p1.title LIKE \
-                                                                                      '%' || p2.title || '%' OR \
-                                                                                      p2.title LIKE \
-                                                                                      '%' || p1.title || '%' THEN 1.0 \
-                                                                                 WHEN p1.title LIKE p2.title || '%' OR p2.title LIKE p1.title || '%' \
-                                                                                     THEN 0.9 \
-                                                                                 ELSE 0.0 \
-                                                                                 END                                                            as title_similarity \
-                                                                      FROM programs p1 \
-                                                                               JOIN programs p2 \
-                                                                                    ON p1.channel_id = p2.channel_id \
-                                                                                        AND \
-                                                                                       p1.provider_id = p2.provider_id \
-                                                                                        AND p1.id < p2.id \
-                                                                                        AND \
-                                                                                       ABS(strftime('%s', p1.start_time) - strftime('%s', p2.start_time)) < \
-                                                                                       ? \
-                                                                      WHERE p1.title IS NOT NULL \
-                                                                        AND p2.title IS NOT NULL)
-                                        SELECT id1, \
-                                               id2, \
-                                               channel_id, \
-                                               title1, \
-                                               title2, \
-                                               start_time, \
-                                               start_time2, \
-                                               time_diff_seconds, \
-                                               title_similarity, \
-                                               created1, \
-                                               created2
-                                        FROM potential_duplicates
-                                        WHERE title_similarity >= 0.7 -- Lower threshold for preview
-                                        ORDER BY channel_id, start_time, time_diff_seconds LIMIT 50 \
-                                        """
-
-        time_tolerance_seconds = time_tolerance * 60
-
-        potential_dups = db.fetchall(
-            find_potential_duplicates_sql, (time_tolerance_seconds,)
+        stats = CleanupService().deduplicate_programs(
+            time_tolerance_minutes=time_tolerance, dry_run=True
         )
-
-        duplicate_list = []
-        seen_pairs = set()
-
-        for row in potential_dups:
-            (
-                id1,
-                id2,
-                channel_id,
-                title1,
-                title2,
-                start1,
-                start2,
-                time_diff,
-                similarity,
-                created1,
-                created2,
-            ) = row
-
-            # Avoid duplicates in the list
-            pair_key = f"{min(id1, id2)}_{max(id1, id2)}"
-            if pair_key in seen_pairs:
-                continue
-            seen_pairs.add(pair_key)
-
-            # Get channel info
-            channel_sql = "SELECT name, display_name FROM channels WHERE id = ?"
-            channel_row = db.fetchone(channel_sql, (channel_id,))
-
-            duplicate_list.append(
-                {
-                    "programs": [
-                        {
-                            "id": id1,
-                            "title": title1,
-                            "start_time": start1 + "Z",
-                            "created_at": created1 + "Z" if created1 else None,
-                        },
-                        {
-                            "id": id2,
-                            "title": title2,
-                            "start_time": start2 + "Z",
-                            "created_at": created2 + "Z" if created2 else None,
-                        },
-                    ],
-                    "channel": {
-                        "id": channel_id,
-                        "name": channel_row[0] if channel_row else None,
-                        "display_name": channel_row[1] if channel_row else None,
-                    },
-                    "match_quality": {
-                        "time_difference_seconds": time_diff,
-                        "title_similarity": similarity,
-                        "would_be_removed": (
-                            created1 < created2 if created1 and created2 else False
-                        ),
-                    },
-                }
-            )
-
-        # Get estimated removal count
-        estimated_removals = (
-            sum(1 for dup in duplicate_list if dup["match_quality"]["would_be_removed"])
-            if duplicate_list
-            else 0
-        )
+        examples = stats.get("examples", [])
 
         return jsonify(
             {
                 "preview": True,
                 "message": "Fuzzy duplicate programs preview",
                 "time_tolerance_minutes": time_tolerance,
-                "examples": duplicate_list,
-                "estimated_removal_count": estimated_removals,
-                "total_examples_found": len(duplicate_list),
+                "examples": examples,
+                "estimated_removal_count": stats.get("would_remove_count", 0),
+                "duplicate_groups": stats.get("duplicate_groups", 0),
+                "rows_scanned": stats.get("rows_scanned", 0),
+                "total_examples_found": len(examples),
             }
         )
 
     except Exception as e:
-        logger.error(f"Error previewing duplicates: {e}")
+        logger.error(f"Error previewing duplicates: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -530,8 +468,8 @@ def trigger_cleanup():
 
         # Get parameters
         retention_days = request.args.get("retention_days", type=int)
-        deduplicate = request.args.get("deduplicate", default=True, type=bool)
-        past_only = request.args.get("past_only", default=False, type=bool)
+        deduplicate = _arg_bool("deduplicate", True)
+        past_only = _arg_bool("past_only", False)
 
         # Load config for default retention
         if retention_days is None:
@@ -553,7 +491,7 @@ def trigger_cleanup():
             past_cutoff = now - timedelta(days=retention_days)
 
             db = get_db()
-            sql = "DELETE FROM programs WHERE start_time < ?"
+            sql = "DELETE FROM programs WHERE datetime(start_time) < datetime(?)"
             with db.get_cursor() as cursor:
                 cursor.execute(sql, (past_cutoff.isoformat(),))
                 deleted_count = cursor.rowcount
@@ -613,8 +551,19 @@ def get_cleanup_status():
         if size_mb > 500:
             warnings.append(f"Database is {size_mb}MB - consider VACUUM or archiving")
 
+        # Surface the last scheduled dedup outcome (an abort is otherwise only
+        # an ERROR log line). Per-process: None if this process has no scheduler
+        # or the job has not run since startup.
+        last_dedup = getattr(ServiceRegistry.scheduler, "last_dedup_result", None)
+        if last_dedup and last_dedup.get("status") != "ok":
+            warnings.append(
+                f"Last deduplication run {last_dedup.get('status')}: "
+                f"{last_dedup.get('message')}"
+            )
+
         return jsonify({
             "database_stats": stats,
+            "last_deduplication": last_dedup,
             "database_size_mb": size_mb,
             "database_size_gb": size_gb,
             "warnings": warnings,
