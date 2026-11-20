@@ -44,6 +44,7 @@ class EPGService:
                 title, subtitle, description, category, episode_num,
                 rating, actors, directors, presenters, writers,
                 producers, icon_url, production_year, country, language,
+                series_id, is_adult, audio_languages, subtitle_languages,
                 created_at,
                 ultimate_epg_id, schedule_id, epg_event_id,
                 genre_description, genre_dvb, categories,
