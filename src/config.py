@@ -64,6 +64,8 @@ class Config:
                 "enabled": True,
                 "max_days": 7,
                 "max_attempts": 3,
+                "batch_size": 1,
+                "providers": {},
             },
             "person_enrichment": {
                 "enabled": True,

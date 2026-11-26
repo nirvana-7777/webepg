@@ -44,6 +44,10 @@ ultimate_backend:
     max_days: 7
     max_attempts: 3
     batch_limit: 5000
+    batch_size: 1  # program ids per backend request (1 = one request each)
+    providers:  # per-provider overrides: batch_size, max_requests_per_second
+      magenta2:
+        batch_size: 50
   person_enrichment:
     enabled: true
     max_requests_per_second: 0.5

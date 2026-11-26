@@ -115,6 +115,8 @@ class JobScheduler:
             max_attempts=detail_config.get("max_attempts", 3),
             run_deadline_hour=detail_config.get("run_deadline_hour", 9),
             run_deadline_tz=detail_config.get("run_deadline_tz", "Europe/Vienna"),
+            batch_size=detail_config.get("batch_size", 1),
+            provider_overrides=detail_config.get("providers") or {},
         )
 
         # Person images/roles: own client per provider and own (low) rate limit,

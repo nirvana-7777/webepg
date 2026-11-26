@@ -17,6 +17,10 @@ from .models import UltimateBackendChannelList
 logger = logging.getLogger(__name__)
 
 
+class BatchNotSupported(Exception):
+    """Backend or provider has no batch program-details endpoint."""
+
+
 class RateLimiter:
     """Simple rate limiter for API requests."""
 
@@ -347,6 +351,37 @@ class UltimateBackendClient(EPGClient):
             raise
 
         return data.get("details")
+
+    async def get_program_details_batch(
+        self,
+        provider_name: str,
+        program_ids: List[str],
+    ) -> Dict[str, Optional[Dict]]:
+        """
+        GET /api/providers/{provider}/programs?ids=a,b,c
+
+        One request for several programs. Returns {program_id: details dict
+        or None}; None means the provider has no details for that id.
+
+        Raises BatchNotSupported if the backend predates this endpoint (404/405)
+        or the provider has no native batching (501), so callers can fall
+        back to get_program_details per program.
+        """
+        try:
+            data = await self._request(
+                "GET",
+                f"/api/providers/{provider_name}/programs",
+                params={"ids": ",".join(program_ids)},
+            )
+        except ClientResponseError as e:
+            if e.status in (404, 405, 501):
+                raise BatchNotSupported(
+                    f"{provider_name}: batch program details unavailable ({e.status})"
+                ) from e
+            raise
+
+        programs = data.get("programs") or {}
+        return {pid: programs.get(pid) for pid in program_ids}
 
     async def get_person_details(
         self,

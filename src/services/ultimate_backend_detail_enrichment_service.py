@@ -32,7 +32,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
-from ..clients.ultimate_backend_client import UltimateBackendClient
+from ..clients.ultimate_backend_client import (
+    BatchNotSupported,
+    UltimateBackendClient,
+)
 from ..database.connection import get_db
 from ..utils.time_utils import next_local_hour_utc
 from .person_service import PersonService
@@ -44,6 +47,12 @@ logger = logging.getLogger(__name__)
 # large enough to keep DB round-trips from dominating runtime relative to
 # the (much slower) rate-limited API calls.
 PAGE_SIZE = 200
+
+# Upper bound for ids per batch request; matches the backend's limit.
+MAX_BATCH_SIZE = 100
+
+# Marks an id whose fetch raised (as opposed to None = provider has no details).
+_FETCH_ERROR = object()
 
 
 class UltimateBackendDetailEnrichmentService:
@@ -60,6 +69,8 @@ class UltimateBackendDetailEnrichmentService:
         max_attempts: int = 3,
         run_deadline_hour: int = 9,
         run_deadline_tz: str = "Europe/Vienna",
+        batch_size: int = 1,
+        provider_overrides: Optional[Dict[str, Dict]] = None,
     ):
         self.base_url = base_url
         self.api_key = api_key
@@ -70,15 +81,20 @@ class UltimateBackendDetailEnrichmentService:
         self.max_attempts = max_attempts
         self.run_deadline_hour = run_deadline_hour
         self.run_deadline_tz = run_deadline_tz
+        self.batch_size = batch_size
+        self.provider_overrides = provider_overrides or {}
 
-    def _make_client(self) -> UltimateBackendClient:
+    def _make_client(self, provider_name: Optional[str] = None) -> UltimateBackendClient:
         """New client per provider — own session, own rate limiter."""
+        rps = self.requests_per_second
+        if provider_name:
+            rps = self._provider_setting(provider_name, "max_requests_per_second", rps)
         return UltimateBackendClient(
             base_url=self.base_url,
             api_key=self.api_key,
             timeout_seconds=self.timeout_seconds,
             max_retries=self.max_retries,
-            requests_per_second=self.requests_per_second,
+            requests_per_second=rps,
         )
 
     def _get_deadline(self) -> datetime:
@@ -105,142 +121,202 @@ class UltimateBackendDetailEnrichmentService:
         return [row[0] for row in rows]
 
     @staticmethod
-    async def _enrich_program(
-        client: UltimateBackendClient,
-        program_id: int,
-        provider_id: int,
-        provider_name: str,
-        schedule_id: str,
-    ) -> bool:
-        """schedule_id here is the grid program_id string, e.g. 'gn.tv-...'."""
+    def _apply_details(provider_id: int, schedule_id: str, details: Dict) -> int:
+        """
+        Write details to every not-yet-enriched grid row of this provider that
+        shares the schedule_id (re-airings, the same programme on several
+        channels). Returns the number of rows updated.
+        """
         db = get_db()
-        try:
-            details = await client.get_program_details(
-                provider_name=provider_name,
-                program_id=schedule_id,
-            )
-            if not details:
-                logger.debug(f"No details for {schedule_id}")
-                return False
+        now = datetime.now(timezone.utc).isoformat()
+        season_number = details.get("season_number")
+        episode_number = details.get("episode_number")
+        has_episode = (
+            1 if season_number is not None and episode_number is not None else None
+        )
+        genres_list = details.get("genres") or []
+        genres_value = ",".join(genres_list) if genres_list else None
 
-            now = datetime.now(timezone.utc).isoformat()
-            season_number = details.get("season_number")
-            episode_number = details.get("episode_number")
-            has_episode = (
-                1 if season_number is not None and episode_number is not None else None
-            )
-            genres_list = details.get("genres") or []
-            genres_value = ",".join(genres_list) if genres_list else None
+        # Prefer the *_details lists ({id, name[, character_name]}) so the
+        # person ids are kept for every role; fall back to the flat name
+        # lists for older payloads.
+        cast_payload = details.get("cast_details") or details.get("cast")
+        directors_payload = details.get("directors_details") or details.get("directors")
+        writers_payload = details.get("writers_details") or details.get("writers")
+        producers_payload = details.get("producers_details") or details.get("producers")
+        presenters_payload = (
+            details.get("presenter_details")
+            or details.get("presenters_details")
+            or details.get("presenters")
+        )
 
-            # Prefer the *_details lists ({id, name[, character_name]}) so the
-            # person ids are kept for every role; fall back to the flat name
-            # lists for older payloads.
-            cast_payload = details.get("cast_details") or details.get("cast")
-            directors_payload = details.get("directors_details") or details.get("directors")
-            writers_payload = details.get("writers_details") or details.get("writers")
-            producers_payload = details.get("producers_details") or details.get("producers")
-            presenters_payload = (
-                details.get("presenter_details")
-                or details.get("presenters_details")
-                or details.get("presenters")
-            )
+        # country_of_origin comes back as a list; the column is scalar.
+        country_list = details.get("country_of_origin") or []
+        country_value = country_list[0] if country_list else None
 
-            # country_of_origin comes back as a list; the column is scalar.
-            country_list = details.get("country_of_origin") or []
-            country_value = country_list[0] if country_list else None
+        audio_langs = details.get("audio_languages") or []
+        subtitle_langs = details.get("subtitle_languages") or []
 
-            audio_langs = details.get("audio_languages") or []
-            subtitle_langs = details.get("subtitle_languages") or []
-
-            db.execute(
-                """
-                UPDATE programs
-                SET description     = ?,
-                    subtitle        = COALESCE(?, subtitle),
-                    icon_url        = COALESCE(?, icon_url),
-                    actors          = COALESCE(?, actors),
-                    directors       = COALESCE(?, directors),
-                    writers         = COALESCE(?, writers),
-                    producers       = COALESCE(?, producers),
-                    presenters      = COALESCE(?, presenters),
-                    production_year = COALESCE(?, production_year),
-                    season_num      = COALESCE(?, season_num),
-                    episode_num     = COALESCE(?, episode_num),
-                    has_episode_info = COALESCE(?, has_episode_info),
-                    category        = COALESCE(?, category),
-                    country         = COALESCE(?, country),
-                    series_id       = COALESCE(?, series_id),
-                    is_adult        = COALESCE(?, is_adult),
-                    audio_languages = COALESCE(?, audio_languages),
-                    subtitle_languages = COALESCE(?, subtitle_languages),
-                    has_details     = 1,
-                    enriched_at     = ?,
-                    detail_fetch_attempts = detail_fetch_attempts + 1
-                WHERE id = ?
-                """,
+        db.execute(
+            """
+            UPDATE programs
+            SET description     = ?,
+                subtitle        = COALESCE(?, subtitle),
+                icon_url        = COALESCE(?, icon_url),
+                actors          = COALESCE(?, actors),
+                directors       = COALESCE(?, directors),
+                writers         = COALESCE(?, writers),
+                producers       = COALESCE(?, producers),
+                presenters      = COALESCE(?, presenters),
+                production_year = COALESCE(?, production_year),
+                season_num      = COALESCE(?, season_num),
+                episode_num     = COALESCE(?, episode_num),
+                has_episode_info = COALESCE(?, has_episode_info),
+                category        = COALESCE(?, category),
+                country         = COALESCE(?, country),
+                series_id       = COALESCE(?, series_id),
+                is_adult        = COALESCE(?, is_adult),
+                audio_languages = COALESCE(?, audio_languages),
+                subtitle_languages = COALESCE(?, subtitle_languages),
+                has_details     = 1,
+                enriched_at     = ?,
+                detail_fetch_attempts = detail_fetch_attempts + 1
+            WHERE provider_id = ?
+              AND schedule_id = ?
+              AND import_source = 'ultimate_grid'
+              AND has_details = 0
+            """,
+            (
+                details.get("description"),
+                details.get("episode_name"),
+                details.get("icon"),
+                json.dumps(cast_payload) if cast_payload else None,
+                json.dumps(directors_payload) if directors_payload else None,
+                json.dumps(writers_payload) if writers_payload else None,
+                json.dumps(producers_payload) if producers_payload else None,
+                json.dumps(presenters_payload) if presenters_payload else None,
+                str(details["year"]) if details.get("year") is not None else None,
+                season_number,
+                episode_number,
+                has_episode,
+                genres_value,
+                country_value,
+                details.get("series_id"),
                 (
-                    details.get("description"),
-                    details.get("episode_name"),
-                    details.get("icon"),
-                    json.dumps(cast_payload) if cast_payload else None,
-                    json.dumps(directors_payload) if directors_payload else None,
-                    json.dumps(writers_payload) if writers_payload else None,
-                    json.dumps(producers_payload) if producers_payload else None,
-                    json.dumps(presenters_payload) if presenters_payload else None,
-                    str(details["year"]) if details.get("year") is not None else None,
-                    season_number,
-                    episode_number,
-                    has_episode,
-                    genres_value,
-                    country_value,
-                    details.get("series_id"),
-                    (
-                        1 if details.get("is_adult") is True
-                        else 0 if details.get("is_adult") is False
-                        else None
-                    ),
-                    json.dumps(audio_langs) if audio_langs else None,
-                    json.dumps(subtitle_langs) if subtitle_langs else None,
-                    now,
-                    program_id,
+                    1 if details.get("is_adult") is True
+                    else 0 if details.get("is_adult") is False
+                    else None
                 ),
-            )
-
-            # Register persons (id + name) so their image/roles get fetched
-            # once by the person enrichment job.
-            PersonService.register(
+                json.dumps(audio_langs) if audio_langs else None,
+                json.dumps(subtitle_langs) if subtitle_langs else None,
+                now,
                 provider_id,
-                cast_payload,
-                directors_payload,
-                writers_payload,
-                producers_payload,
-                presenters_payload,
-            )
-            return True
+                schedule_id,
+            ),
+        )
+        changes = db.fetchone("SELECT changes()")
+        rows_updated = changes[0] if changes else 0
 
-        except Exception as e:
-            db.execute(
-                "UPDATE programs SET detail_fetch_attempts = detail_fetch_attempts + 1 WHERE id = ?",
-                (program_id,),
-            )
-            logger.warning(f"Failed to enrich {schedule_id} ({provider_name}): {e}")
-            return False
+        # Register persons (id + name) so their image/roles get fetched
+        # once by the person enrichment job.
+        PersonService.register(
+            provider_id,
+            cast_payload,
+            directors_payload,
+            writers_payload,
+            producers_payload,
+            presenters_payload,
+        )
+        return rows_updated
+
+    @staticmethod
+    def _mark_failed(provider_id: int, schedule_id: str) -> None:
+        """Count a failed or empty lookup as an attempt for all rows of the id."""
+        get_db().execute(
+            """
+            UPDATE programs
+            SET detail_fetch_attempts = detail_fetch_attempts + 1
+            WHERE provider_id = ? AND schedule_id = ?
+              AND import_source = 'ultimate_grid' AND has_details = 0
+            """,
+            (provider_id, schedule_id),
+        )
+
+    def _provider_setting(self, provider_name: str, key: str, default):
+        """Per-provider override from config ``detail_enrichment.providers``."""
+        return (self.provider_overrides.get(provider_name) or {}).get(key, default)
+
+    async def _fetch_details(
+        self,
+        client: UltimateBackendClient,
+        provider_name: str,
+        schedule_ids: List[str],
+        use_batch: bool,
+    ):
+        """
+        Fetch details for the given ids.
+
+        Returns (results, use_batch, requests). results maps id -> details
+        dict, None (provider has none) or _FETCH_ERROR. use_batch comes back
+        False if the backend turned out not to support batching, so the
+        caller stops trying for the rest of the run.
+        """
+        if use_batch and len(schedule_ids) > 1:
+            try:
+                results = await client.get_program_details_batch(
+                    provider_name, schedule_ids
+                )
+                return results, True, 1
+            except BatchNotSupported as e:
+                logger.warning(f"{e}; falling back to single requests")
+                use_batch = False
+            except Exception as e:
+                logger.warning(
+                    f"Batch detail fetch failed for {provider_name} "
+                    f"({len(schedule_ids)} ids): {e}"
+                )
+                return {sid: _FETCH_ERROR for sid in schedule_ids}, True, 1
+
+        results = {}
+        for sid in schedule_ids:
+            try:
+                results[sid] = await client.get_program_details(
+                    provider_name=provider_name, program_id=sid
+                )
+            except Exception as e:
+                logger.warning(f"Failed to fetch details for {sid} ({provider_name}): {e}")
+                results[sid] = _FETCH_ERROR
+        return results, use_batch, len(schedule_ids)
 
     async def _enrich_provider(self, provider_name: str, deadline: datetime) -> Dict:
         """Enrich one provider's backlog until it's empty or the deadline hits."""
-        client = self._make_client()
+        client = self._make_client(provider_name)
         db = get_db()
         stats = {
             "provider": provider_name,
-            "enriched": 0,
-            "failed": 0,
+            "enriched": 0,  # distinct schedule_ids with details
+            "rows_updated": 0,  # airings those details were written to
+            "failed": 0,  # distinct schedule_ids without details this run
+            "requests": 0,
             "hit_deadline": False,
         }
 
         now = datetime.now(timezone.utc)
         cutoff = now + timedelta(days=self.max_days)
 
-        already_tried = 0
+        batch_size = max(
+            1,
+            min(
+                int(self._provider_setting(provider_name, "batch_size", self.batch_size)),
+                MAX_BATCH_SIZE,
+            ),
+        )
+        use_batch = batch_size > 1
+
+        # Keyset cursor over (start_time, id). Rows that failed stay in the
+        # backlog (attempts < max) but are never selected again in this run.
+        last_start, last_id = "", 0
+        failed_ids = set()
 
         try:
             while True:
@@ -254,7 +330,7 @@ class UltimateBackendDetailEnrichmentService:
 
                 programs = db.fetchall_as_dict(
                     """
-                    SELECT p.id, p.provider_id, p.schedule_id
+                    SELECT p.id, p.provider_id, p.schedule_id, p.start_time
                     FROM programs p
                     JOIN providers pr ON p.provider_id = pr.id
                     WHERE p.import_source = 'ultimate_grid'
@@ -263,36 +339,69 @@ class UltimateBackendDetailEnrichmentService:
                       AND p.start_time BETWEEN ? AND ?
                       AND p.schedule_id IS NOT NULL
                       AND p.detail_fetch_attempts < ?
+                      AND (p.start_time > ? OR (p.start_time = ? AND p.id > ?))
                     ORDER BY p.start_time ASC, p.id ASC
-                    LIMIT ? OFFSET ?
+                    LIMIT ?
                     """,
                     (
                         provider_name,
                         now.isoformat(),
                         cutoff.isoformat(),
                         self.max_attempts,
+                        last_start,
+                        last_start,
+                        last_id,
                         PAGE_SIZE,
-                        already_tried,
                     ),
                 )
 
                 if not programs:
                     break  # backlog cleared for this provider
 
-                for program in programs:
+                last_start, last_id = programs[-1]["start_time"], programs[-1]["id"]
+                provider_id = programs[0]["provider_id"]
+
+                # One request per distinct schedule_id, in start_time order.
+                schedule_ids = [
+                    sid
+                    for sid in dict.fromkeys(p["schedule_id"] for p in programs)
+                    if sid not in failed_ids
+                ]
+
+                idx = 0
+                while idx < len(schedule_ids):
                     if datetime.now(timezone.utc) >= deadline:
                         stats["hit_deadline"] = True
                         break
-                    ok = await self._enrich_program(
-                        client,
-                        program["id"],
-                        program["provider_id"],
-                        provider_name,
-                        program["schedule_id"],
+
+                    step = batch_size if use_batch else 1
+                    chunk = schedule_ids[idx : idx + step]
+                    idx += step
+
+                    results, use_batch, requests = await self._fetch_details(
+                        client, provider_name, chunk, use_batch
                     )
-                    stats["enriched" if ok else "failed"] += 1
-                    if not ok:
-                        already_tried += 1
+                    stats["requests"] += requests
+
+                    for sid in chunk:
+                        details = results.get(sid)
+                        if not details or details is _FETCH_ERROR:
+                            # Failed or empty: count an attempt so it is not
+                            # re-requested every night for the whole window.
+                            self._mark_failed(provider_id, sid)
+                            failed_ids.add(sid)
+                            stats["failed"] += 1
+                            continue
+                        try:
+                            stats["rows_updated"] += self._apply_details(
+                                provider_id, sid, details
+                            )
+                            stats["enriched"] += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to store details for {sid}: {e}")
+                            self._mark_failed(provider_id, sid)
+                            failed_ids.add(sid)
+                            stats["failed"] += 1
 
                 if stats["hit_deadline"]:
                     break
