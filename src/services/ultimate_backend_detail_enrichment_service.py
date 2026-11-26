@@ -31,10 +31,11 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
-from zoneinfo import ZoneInfo
 
 from ..clients.ultimate_backend_client import UltimateBackendClient
 from ..database.connection import get_db
+from ..utils.time_utils import next_local_hour_utc
+from .person_service import PersonService
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +87,7 @@ class UltimateBackendDetailEnrichmentService:
         datetime. Computed once per overall run (not per provider) so all
         provider tasks share the same cutoff.
         """
-        tz = ZoneInfo(self.run_deadline_tz)
-        now_local = datetime.now(tz)
-        deadline_local = now_local.replace(
-            hour=self.run_deadline_hour, minute=0, second=0, microsecond=0
-        )
-        if deadline_local <= now_local:
-            deadline_local += timedelta(days=1)
-        return deadline_local.astimezone(timezone.utc)
+        return next_local_hour_utc(self.run_deadline_hour, self.run_deadline_tz)
 
     @staticmethod
     def _get_grid_providers() -> List[str]:
@@ -114,6 +108,7 @@ class UltimateBackendDetailEnrichmentService:
     async def _enrich_program(
         client: UltimateBackendClient,
         program_id: int,
+        provider_id: int,
         provider_name: str,
         schedule_id: str,
     ) -> bool:
@@ -137,9 +132,18 @@ class UltimateBackendDetailEnrichmentService:
             genres_list = details.get("genres") or []
             genres_value = ",".join(genres_list) if genres_list else None
 
-            # Prefer cast_details (carries character_name) when present;
-            # fall back to the flat cast list for older payloads.
+            # Prefer the *_details lists ({id, name[, character_name]}) so the
+            # person ids are kept for every role; fall back to the flat name
+            # lists for older payloads.
             cast_payload = details.get("cast_details") or details.get("cast")
+            directors_payload = details.get("directors_details") or details.get("directors")
+            writers_payload = details.get("writers_details") or details.get("writers")
+            producers_payload = details.get("producers_details") or details.get("producers")
+            presenters_payload = (
+                details.get("presenter_details")
+                or details.get("presenters_details")
+                or details.get("presenters")
+            )
 
             # country_of_origin comes back as a list; the column is scalar.
             country_list = details.get("country_of_origin") or []
@@ -179,14 +183,10 @@ class UltimateBackendDetailEnrichmentService:
                     details.get("episode_name"),
                     details.get("icon"),
                     json.dumps(cast_payload) if cast_payload else None,
-                    json.dumps(details["directors"]) if details.get("directors") else None,
-                    json.dumps(details["writers"]) if details.get("writers") else None,
-                    json.dumps(details["producers"]) if details.get("producers") else None,
-                    (
-                        json.dumps(details["presenters"])
-                        if details.get("presenters")
-                        else None
-                    ),
+                    json.dumps(directors_payload) if directors_payload else None,
+                    json.dumps(writers_payload) if writers_payload else None,
+                    json.dumps(producers_payload) if producers_payload else None,
+                    json.dumps(presenters_payload) if presenters_payload else None,
                     str(details["year"]) if details.get("year") is not None else None,
                     season_number,
                     episode_number,
@@ -204,6 +204,17 @@ class UltimateBackendDetailEnrichmentService:
                     now,
                     program_id,
                 ),
+            )
+
+            # Register persons (id + name) so their image/roles get fetched
+            # once by the person enrichment job.
+            PersonService.register(
+                provider_id,
+                cast_payload,
+                directors_payload,
+                writers_payload,
+                producers_payload,
+                presenters_payload,
             )
             return True
 
@@ -243,7 +254,7 @@ class UltimateBackendDetailEnrichmentService:
 
                 programs = db.fetchall_as_dict(
                     """
-                    SELECT p.id, p.schedule_id
+                    SELECT p.id, p.provider_id, p.schedule_id
                     FROM programs p
                     JOIN providers pr ON p.provider_id = pr.id
                     WHERE p.import_source = 'ultimate_grid'
@@ -273,7 +284,11 @@ class UltimateBackendDetailEnrichmentService:
                         stats["hit_deadline"] = True
                         break
                     ok = await self._enrich_program(
-                        client, program["id"], provider_name, program["schedule_id"]
+                        client,
+                        program["id"],
+                        program["provider_id"],
+                        provider_name,
+                        program["schedule_id"],
                     )
                     stats["enriched" if ok else "failed"] += 1
                     if not ok:

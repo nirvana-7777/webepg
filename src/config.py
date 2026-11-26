@@ -65,6 +65,11 @@ class Config:
                 "max_days": 7,
                 "max_attempts": 3,
             },
+            "person_enrichment": {
+                "enabled": True,
+                "max_requests_per_second": 0.5,
+                "max_attempts": 3,
+            },
         },
     }
 

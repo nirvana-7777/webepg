@@ -44,6 +44,10 @@ ultimate_backend:
     max_days: 7
     max_attempts: 3
     batch_limit: 5000
+  person_enrichment:
+    enabled: true
+    max_requests_per_second: 0.5
+    max_attempts: 3
   discovery:
     enabled: true
     day: 6

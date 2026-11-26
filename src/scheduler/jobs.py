@@ -23,6 +23,9 @@ from ..services.ultimate_backend_grid_import_service import (
 from ..services.ultimate_backend_detail_enrichment_service import (
     UltimateBackendDetailEnrichmentService,
 )
+from ..services.ultimate_backend_person_enrichment_service import (
+    UltimateBackendPersonEnrichmentService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,9 @@ class JobScheduler:
         self.detail_enrichment_service: Optional[
             UltimateBackendDetailEnrichmentService
         ] = None
+        self.person_enrichment_service: Optional[
+            UltimateBackendPersonEnrichmentService
+        ] = None
 
         if self.ultimate_enabled:
             self._init_ultimate_backend(config)
@@ -60,6 +66,7 @@ class JobScheduler:
         import_config = ub_config.get("import", {})
         grid_config = ub_config.get("grid_import", {})
         detail_config = ub_config.get("detail_enrichment", {})
+        person_config = ub_config.get("person_enrichment", {})
 
         self.ultimate_client = UltimateBackendClient(
             base_url=instance.get("base_url", "http://ultimate:7777"),
@@ -109,6 +116,20 @@ class JobScheduler:
             run_deadline_hour=detail_config.get("run_deadline_hour", 9),
             run_deadline_tz=detail_config.get("run_deadline_tz", "Europe/Vienna"),
         )
+
+        # Person images/roles: own client per provider and own (low) rate limit,
+        # same pattern as detail enrichment. Runs after it in the same job.
+        if person_config.get("enabled", True):
+            self.person_enrichment_service = UltimateBackendPersonEnrichmentService(
+                base_url=instance.get("base_url", "http://ultimate:7777"),
+                api_key=instance.get("api_key"),
+                timeout_seconds=import_config.get("timeout_seconds", 30),
+                max_retries=import_config.get("max_retries", 3),
+                requests_per_second=person_config.get("max_requests_per_second", 0.5),
+                max_attempts=person_config.get("max_attempts", 3),
+                run_deadline_hour=detail_config.get("run_deadline_hour", 9),
+                run_deadline_tz=detail_config.get("run_deadline_tz", "Europe/Vienna"),
+            )
 
         logger.info("Ultimate Backend integration initialized")
 
@@ -337,6 +358,26 @@ class JobScheduler:
             logger.info(f"Detail enrichment completed: {stats}")
         except Exception as e:
             logger.error(f"Detail enrichment job failed: {e}", exc_info=True)
+
+        self._run_person_enrichment()
+
+    def _run_person_enrichment(self):
+        """Fetch image/roles for newly registered persons (after details)."""
+        if not self.person_enrichment_service:
+            return
+        logger.info("Starting Ultimate Backend person enrichment")
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                stats = loop.run_until_complete(
+                    self.person_enrichment_service.enrich_all_providers()
+                )
+            finally:
+                loop.close()
+            logger.info(f"Person enrichment completed: {stats}")
+        except Exception as e:
+            logger.error(f"Person enrichment job failed: {e}", exc_info=True)
 
     def _run_epg_export_job(self):
         """

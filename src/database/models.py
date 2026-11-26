@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from ..utils.credits import credit_names
 from ..utils.time_utils import to_utc_isoformat
 
 
@@ -155,6 +156,9 @@ class Program:
     epg_flags: Optional[int] = None
     has_episode_info: Optional[int] = None
     created_at: Optional[datetime] = None
+    # Structured credits incl. person image/roles; set by
+    # PersonService.attach_to_programs, not stored on the row.
+    credits: Optional[dict] = None
 
     @classmethod
     def from_db_row(cls, row) -> "Program":
@@ -250,11 +254,12 @@ class Program:
             "category": self.category,
             "episode_num": self.episode_num,
             "rating": self.rating,
-            "actors": self.actors or [],
-            "directors": self.directors or [],
-            "presenters": self.presenters or [],
-            "writers": self.writers or [],
-            "producers": self.producers or [],
+            # Name lists, whatever shape the row stores (see utils/credits.py)
+            "actors": credit_names(self.actors),
+            "directors": credit_names(self.directors),
+            "presenters": credit_names(self.presenters),
+            "writers": credit_names(self.writers),
+            "producers": credit_names(self.producers),
             "icon_url": self.icon_url,
             "production_year": self.production_year,
             "country": self.country,
@@ -264,6 +269,8 @@ class Program:
 
         # Detail-enrichment fields: emit only when present so the response
         # stays clean for non-enriched programs.
+        if self.credits:
+            result["credits"] = self.credits
         if self.series_id is not None:
             result["series_id"] = self.series_id
         if self.is_adult is not None:

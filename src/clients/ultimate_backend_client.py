@@ -348,6 +348,35 @@ class UltimateBackendClient(EPGClient):
 
         return data.get("details")
 
+    async def get_person_details(
+        self,
+        provider_name: str,
+        person_id: str,
+    ) -> Optional[Dict]:
+        """
+        GET /api/providers/{provider}/persons/{person_id}
+
+        Response shape:
+            {"provider": "magenta2", "person_id": "gnp_230637",
+             "person": {"id": "gnp_230637", "name": "Kat Dennings",
+                        "image": "https://...", "roles": ["Actor"]}}
+
+        Returns the "person" dict, or None on 404 (unknown person, or a
+        provider/backend without person support).
+        """
+        try:
+            data = await self._request(
+                "GET",
+                f"/api/providers/{provider_name}/persons/{person_id}",
+            )
+        except ClientResponseError as e:
+            if e.status == 404:
+                logger.debug(f"No person {person_id} for {provider_name}")
+                return None
+            raise
+
+        return data.get("person")
+
     async def has_epg(self, provider_name: str) -> bool:
         """
         Check if provider has EPG by fetching the /channels endpoint

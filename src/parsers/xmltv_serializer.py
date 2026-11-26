@@ -8,6 +8,8 @@ from typing import Dict, List, Optional, Any, BinaryIO
 from xml.etree.ElementTree import Element, ElementTree, SubElement, tostring
 from xml.dom import minidom
 
+from ..utils.credits import CREDIT_ROLES, normalize_credits
+
 logger = logging.getLogger(__name__)
 
 
@@ -120,53 +122,37 @@ class XMLTVSerializer:
             desc.text = program["description"]
             desc.set("lang", "en")
 
-        # Credits
-        credits_elem = None
+        # Credits. Children must follow the XMLTV DTD order:
+        # director, actor, writer, producer, presenter.
+        # ``program["credits"]`` (set by PersonService) carries person images;
+        # without it, fall back to the raw columns (names only).
+        credits = program.get("credits")
+        if not credits:
+            credits = {
+                role: normalize_credits(self._parse_json_field(program.get(role)))
+                for role in CREDIT_ROLES
+            }
 
-        # Parse JSON fields
-        actors = self._parse_json_field(program.get("actors"))
-        directors = self._parse_json_field(program.get("directors"))
-        presenters = self._parse_json_field(program.get("presenters"))
-        writers = self._parse_json_field(program.get("writers"))
-        producers = self._parse_json_field(program.get("producers"))
+        credit_tags = (
+            ("directors", "director"),
+            ("actors", "actor"),
+            ("writers", "writer"),
+            ("producers", "producer"),
+            ("presenters", "presenter"),
+        )
 
-        if any([actors, directors, presenters, writers, producers]):
+        if any(credits.get(role) for role, _ in credit_tags):
             credits_elem = SubElement(prog_elem, "credits")
 
-            # Directors
-            if directors:
-                for director in directors:
-                    if director:
-                        director_elem = SubElement(credits_elem, "director")
-                        director_elem.text = director
-
-            # Actors (with optional role from categories or custom field)
-            if actors:
-                for actor in actors:
-                    if actor:
-                        actor_elem = SubElement(credits_elem, "actor")
-                        actor_elem.text = actor
-
-            # Presenters
-            if presenters:
-                for presenter in presenters:
-                    if presenter:
-                        presenter_elem = SubElement(credits_elem, "presenter")
-                        presenter_elem.text = presenter
-
-            # Writers
-            if writers:
-                for writer in writers:
-                    if writer:
-                        writer_elem = SubElement(credits_elem, "writer")
-                        writer_elem.text = writer
-
-            # Producers
-            if producers:
-                for producer in producers:
-                    if producer:
-                        producer_elem = SubElement(credits_elem, "producer")
-                        producer_elem.text = producer
+            for role, tag in credit_tags:
+                for person in credits.get(role) or []:
+                    person_elem = SubElement(credits_elem, tag)
+                    person_elem.text = person["name"]
+                    if tag == "actor" and person.get("character_name"):
+                        person_elem.set("role", str(person["character_name"]))
+                    if person.get("image"):
+                        image_elem = SubElement(person_elem, "image")
+                        image_elem.text = person["image"]
 
         # Date (production year)
         if program.get("production_year"):

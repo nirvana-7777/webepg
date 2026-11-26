@@ -8,6 +8,7 @@ from typing import List, Optional, Dict, Tuple
 
 from ..database.connection import get_db
 from ..database.models import Channel, ChannelAlias, Program, Provider
+from ..services.person_service import PersonService
 from ..services.provider_service import ProviderService
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class EPGService:
         try:
             rows = db.fetchall(sql, (channel_id, end_str, start_str))
             programs = [Program.from_db_row(row) for row in rows]
+            PersonService.attach_to_programs(programs)
 
             logger.debug(
                 f"Found {len(programs)} programs for channel {channel_id} "
@@ -898,5 +900,8 @@ class EPGService:
             }
             for channel in channels
         ]
+
+        # Attach structured credits incl. person images for the XMLTV export
+        PersonService.attach_to_dicts(programs)
 
         return channel_dicts, programs

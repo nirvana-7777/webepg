@@ -3,8 +3,9 @@
 Utility functions for consistent UTC time handling.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 
 def to_utc_isoformat(dt: Optional[datetime]) -> Optional[str]:
@@ -33,3 +34,13 @@ def to_utc_isoformat(dt: Optional[datetime]) -> Optional[str]:
 def now_utc() -> datetime:
     """Get current UTC datetime."""
     return datetime.now(timezone.utc)
+
+
+def next_local_hour_utc(hour: int, tz_name: str) -> datetime:
+    """Next occurrence of ``hour``:00 in ``tz_name``, as an aware UTC datetime."""
+    tz = ZoneInfo(tz_name)
+    now_local = datetime.now(tz)
+    target = now_local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target <= now_local:
+        target += timedelta(days=1)
+    return target.astimezone(timezone.utc)
