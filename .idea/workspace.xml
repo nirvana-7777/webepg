@@ -4,18 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="add epg_event_id">
+    <list default="true" id="b2349d3d-df60-4fbe-9d69-3a1d54621217" name="Changes" comment="add batch for magenta2">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/config.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/clients/ultimate_backend_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/clients/ultimate_backend_client.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/database/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/database/schema.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/database/schema.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/parsers/xmltv_serializer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/parsers/xmltv_serializer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/scheduler/jobs.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/scheduler/jobs.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/epg_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/epg_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_detail_enrichment_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_detail_enrichment_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/time_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/time_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/services/ultimate_backend_person_enrichment_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/services/ultimate_backend_person_enrichment_service.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -202,22 +194,6 @@
       <workItem from="1768312874452" duration="4799000" />
       <workItem from="1768319972562" duration="6932000" />
       <workItem from="1768398622958" duration="1264000" />
-    </task>
-    <task id="LOCAL-00056" summary="Read EPG from backend">
-      <option name="closed" value="true" />
-      <created>1776080365670</created>
-      <option name="number" value="00056" />
-      <option name="presentableId" value="LOCAL-00056" />
-      <option name="project" value="LOCAL" />
-      <updated>1776080365670</updated>
-    </task>
-    <task id="LOCAL-00057" summary="Export as xmltv">
-      <option name="closed" value="true" />
-      <created>1776093718333</created>
-      <option name="number" value="00057" />
-      <option name="presentableId" value="LOCAL-00057" />
-      <option name="project" value="LOCAL" />
-      <updated>1776093718333</updated>
     </task>
     <task id="LOCAL-00058" summary="Fix discovery of channels">
       <option name="closed" value="true" />
@@ -595,7 +571,23 @@
       <option name="project" value="LOCAL" />
       <updated>1795271573131</updated>
     </task>
-    <option name="localTasksCounter" value="105" />
+    <task id="LOCAL-00105" summary="add persons">
+      <option name="closed" value="true" />
+      <created>1795681289220</created>
+      <option name="number" value="00105" />
+      <option name="presentableId" value="LOCAL-00105" />
+      <option name="project" value="LOCAL" />
+      <updated>1795681289220</updated>
+    </task>
+    <task id="LOCAL-00106" summary="add batch for magenta2">
+      <option name="closed" value="true" />
+      <created>1795719764498</created>
+      <option name="number" value="00106" />
+      <option name="presentableId" value="LOCAL-00106" />
+      <option name="project" value="LOCAL" />
+      <updated>1795719764498</updated>
+    </task>
+    <option name="localTasksCounter" value="107" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -613,8 +605,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Introduce Channel Aliases" />
-    <MESSAGE value="Read EPG from backend" />
     <MESSAGE value="Export as xmltv" />
     <MESSAGE value="Fix discovery of channels" />
     <MESSAGE value="Add updated_at to channels" />
@@ -638,7 +628,9 @@
     <MESSAGE value="de-dup daily" />
     <MESSAGE value="add some more fields" />
     <MESSAGE value="add epg_event_id" />
-    <option name="LAST_COMMIT_MESSAGE" value="add epg_event_id" />
+    <MESSAGE value="add persons" />
+    <MESSAGE value="add batch for magenta2" />
+    <option name="LAST_COMMIT_MESSAGE" value="add batch for magenta2" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/webepg$main.coverage" NAME="main Coverage Results" MODIFIED="1766784290681" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

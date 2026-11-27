@@ -19,7 +19,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
-from ..clients.ultimate_backend_client import UltimateBackendClient
+from ..clients.ultimate_backend_client import (
+    PersonsNotSupported,
+    UltimateBackendClient,
+)
 from ..database.connection import get_db
 from ..utils.time_utils import next_local_hour_utc
 
@@ -118,6 +121,8 @@ class UltimateBackendPersonEnrichmentService:
             )
             return True
 
+        except PersonsNotSupported:
+            raise
         except Exception as e:
             db.execute(
                 "UPDATE persons SET fetch_attempts = fetch_attempts + 1 "
@@ -169,9 +174,24 @@ class UltimateBackendPersonEnrichmentService:
                     if datetime.now(timezone.utc) >= deadline:
                         stats["hit_deadline"] = True
                         break
-                    ok = await self._enrich_person(
-                        client, provider_id, provider_name, row["person_id"]
-                    )
+                    try:
+                        ok = await self._enrich_person(
+                            client, provider_id, provider_name, row["person_id"]
+                        )
+                    except PersonsNotSupported:
+                        # One 501 settles it for the whole provider: park all
+                        # its pending rows instead of asking once per person.
+                        db.execute(
+                            "UPDATE persons SET status = 'unsupported' "
+                            "WHERE provider_id = ? AND status = 'pending'",
+                            (provider_id,),
+                        )
+                        stats["unsupported"] = True
+                        logger.info(
+                            f"{provider_name} has no person lookup; "
+                            f"skipping its pending persons"
+                        )
+                        return stats
                     if ok:
                         stats["fetched"] += 1
                     else:

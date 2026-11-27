@@ -21,6 +21,10 @@ class BatchNotSupported(Exception):
     """Backend or provider has no batch program-details endpoint."""
 
 
+class PersonsNotSupported(Exception):
+    """Provider has no person lookup (backend answered 501)."""
+
+
 class RateLimiter:
     """Simple rate limiter for API requests."""
 
@@ -396,8 +400,8 @@ class UltimateBackendClient(EPGClient):
              "person": {"id": "gnp_230637", "name": "Kat Dennings",
                         "image": "https://...", "roles": ["Actor"]}}
 
-        Returns the "person" dict, or None on 404 (unknown person, or a
-        provider/backend without person support).
+        Returns the "person" dict, or None on 404 (unknown person).
+        Raises PersonsNotSupported on 501 (provider has no person lookup).
         """
         try:
             data = await self._request(
@@ -405,6 +409,8 @@ class UltimateBackendClient(EPGClient):
                 f"/api/providers/{provider_name}/persons/{person_id}",
             )
         except ClientResponseError as e:
+            if e.status == 501:
+                raise PersonsNotSupported(provider_name) from e
             if e.status == 404:
                 logger.debug(f"No person {person_id} for {provider_name}")
                 return None
