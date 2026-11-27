@@ -169,7 +169,7 @@ class XMLTVSerializer:
         categories = self._parse_json_field(program.get("categories"))
         if categories:
             for cat in categories:
-                if cat:
+                if cat and str(cat) != program.get("category"):
                     category = SubElement(prog_elem, "category")
                     category.text = str(cat)
                     category.set("lang", "en")

@@ -134,8 +134,18 @@ class UltimateBackendDetailEnrichmentService:
         has_episode = (
             1 if season_number is not None and episode_number is not None else None
         )
-        genres_list = details.get("genres") or []
-        genres_value = ",".join(genres_list) if genres_list else None
+        # genres stay a list: first one fills the scalar ``category`` (only
+        # if the grid import left it empty), all of them go to ``categories``
+        # so XMLTV emits one <category> per genre.
+        genres_list = [g for g in (details.get("genres") or []) if g]
+        first_genre = genres_list[0] if genres_list else None
+        categories_value = json.dumps(genres_list) if genres_list else None
+
+        # Parental rating: only fill if the grid import did not provide one.
+        raw_rating = details.get("parental_rating_code")
+        if raw_rating in (None, ""):
+            raw_rating = details.get("parental_rating")
+        rating_value = str(raw_rating) if raw_rating not in (None, "") else None
 
         # Prefer the *_details lists ({id, name[, character_name]}) so the
         # person ids are kept for every role; fall back to the flat name
@@ -160,7 +170,7 @@ class UltimateBackendDetailEnrichmentService:
         db.execute(
             """
             UPDATE programs
-            SET description     = ?,
+            SET description     = COALESCE(?, description),
                 subtitle        = COALESCE(?, subtitle),
                 icon_url        = COALESCE(?, icon_url),
                 actors          = COALESCE(?, actors),
@@ -172,7 +182,9 @@ class UltimateBackendDetailEnrichmentService:
                 season_num      = COALESCE(?, season_num),
                 episode_num     = COALESCE(?, episode_num),
                 has_episode_info = COALESCE(?, has_episode_info),
-                category        = COALESCE(?, category),
+                category        = COALESCE(category, ?),
+                categories      = COALESCE(?, categories),
+                rating          = COALESCE(rating, ?),
                 country         = COALESCE(?, country),
                 series_id       = COALESCE(?, series_id),
                 is_adult        = COALESCE(?, is_adult),
@@ -199,7 +211,9 @@ class UltimateBackendDetailEnrichmentService:
                 season_number,
                 episode_number,
                 has_episode,
-                genres_value,
+                first_genre,
+                categories_value,
+                rating_value,
                 country_value,
                 details.get("series_id"),
                 (

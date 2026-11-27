@@ -14,10 +14,11 @@ the complete EPG including person images.
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from ..database.connection import get_db
-from ..utils.credits import CREDIT_ROLES, normalize_credits
+from ..utils.credits import CREDIT_ROLES, extract_person_info, normalize_credits
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +29,60 @@ _IN_BATCH = 500
 class PersonService:
     @staticmethod
     def register(provider_id: int, *credit_lists: Optional[list]) -> int:
-        """Register persons (id + name) found in parsed credit lists."""
-        found: Dict[str, str] = {}
+        """Register persons (id + name) found in parsed credit lists.
+
+        If the credit entries already carry ``image`` and/or ``roles`` (inline
+        ``*_details`` from providers without a ``/persons`` endpoint), those
+        are stored right away and the person is marked ``ok`` so the person
+        enrichment job never has to ask the backend for it. Existing image or
+        roles are only replaced by non-empty new values; an already ``ok``
+        row is never downgraded.
+        """
+        found: Dict[str, Dict[str, Any]] = {}
         for credit_list in credit_lists:
+            # Inline data first: richer entries win over plain id+name ones.
+            for info in extract_person_info(credit_list):
+                current = found.setdefault(info["id"], {"name": info["name"]})
+                if info.get("image"):
+                    current.setdefault("image", info["image"])
+                if info.get("roles"):
+                    current.setdefault("roles", info["roles"])
             for person in normalize_credits(credit_list):
                 if person.get("id"):
-                    found.setdefault(person["id"], person["name"])
+                    found.setdefault(person["id"], {"name": person["name"]})
 
         if not found:
             return 0
 
+        now = datetime.now(timezone.utc).isoformat()
+        rows = []
+        for pid, info in found.items():
+            inline = bool(info.get("image") or info.get("roles"))
+            rows.append(
+                (
+                    provider_id,
+                    pid,
+                    info["name"],
+                    info.get("image"),
+                    json.dumps(info["roles"]) if info.get("roles") else None,
+                    "ok" if inline else "pending",
+                    now if inline else None,
+                )
+            )
+
         get_db().executemany(
-            "INSERT OR IGNORE INTO persons (provider_id, person_id, name) "
-            "VALUES (?, ?, ?)",
-            [(provider_id, pid, name) for pid, name in found.items()],
+            """
+            INSERT INTO persons
+                (provider_id, person_id, name, image_url, roles, status, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(provider_id, person_id) DO UPDATE SET
+                image_url  = COALESCE(excluded.image_url, persons.image_url),
+                roles      = COALESCE(excluded.roles, persons.roles),
+                status     = CASE WHEN excluded.status = 'ok'
+                                  THEN 'ok' ELSE persons.status END,
+                fetched_at = COALESCE(excluded.fetched_at, persons.fetched_at)
+            """,
+            rows,
         )
         return len(found)
 

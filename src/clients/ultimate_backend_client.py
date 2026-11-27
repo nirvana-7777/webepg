@@ -336,8 +336,10 @@ class UltimateBackendClient(EPGClient):
                 "producers": ["Craig Colby", ...]
              }}
 
-        Note: there is no season_num/episode_num/parental_rating in this
-        response — those only ever come from the grid endpoint.
+        Note: season_num/episode_num only ever come from the grid endpoint.
+        Some providers (magentaeu_*) additionally deliver genres,
+        parental_rating_code, country_of_origin, backdrop and inline
+        cast_details/directors_details/... lists with person image + roles.
 
         Returns:
             The raw "details" dict, or None if the program has no details

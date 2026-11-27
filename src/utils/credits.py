@@ -43,3 +43,35 @@ def normalize_credits(raw: Any) -> List[Dict[str, Any]]:
 def credit_names(raw: Any) -> List[str]:
     """Plain name list (legacy ``actors``/``directors`` shape)."""
     return [person["name"] for person in normalize_credits(raw)]
+
+
+def extract_person_info(raw: Any) -> List[Dict[str, Any]]:
+    """Return ``[{"id", "name", "image"?, "roles"?}, ...]`` for entries that
+    carry a person id.
+
+    Providers without a ``/persons`` endpoint (e.g. magentaeu_*) deliver
+    ``image`` and ``roles`` inline in the ``*_details`` lists of the programme
+    details. ``normalize_credits`` deliberately drops those (programme rows
+    keep only id/name/character_name), so they are collected here and stored
+    once in the ``persons`` table instead.
+    """
+    if not isinstance(raw, list):
+        return []
+
+    result: List[Dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        person_id = entry.get("id")
+        if not name or not person_id:
+            continue
+        info: Dict[str, Any] = {"id": str(person_id), "name": name}
+        image = entry.get("image")
+        if isinstance(image, str) and image.strip():
+            info["image"] = image.strip()
+        roles = entry.get("roles")
+        if isinstance(roles, list) and roles:
+            info["roles"] = [str(r) for r in roles if r]
+        result.append(info)
+    return result
