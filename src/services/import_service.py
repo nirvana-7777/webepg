@@ -345,6 +345,8 @@ class ImportService:
         logs = []
 
         for provider in providers:
+            if provider.source_type != "xmltv":
+                continue
             try:
                 log = self.import_provider(provider.id)
                 logs.append(log)
